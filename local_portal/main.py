@@ -58,6 +58,37 @@ class UserResponse(SQLModel):
     username: str
     roles: str
 
+# NEW: WebApp Model and Pydantic Models
+class WebApp(SQLModel, table=True):
+    """
+    Represents a web application that can be accessed via the portal.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True, min_length=3, max_length=100)
+    url: str = Field(min_length=5) # e.g., http://localhost:5001
+    # Comma-separated list of roles required to see/access this app
+    required_roles: str = Field(default="user", max_length=255)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+class WebAppCreate(SQLModel):
+    name: str = Field(min_length=3, max_length=100)
+    url: str = Field(min_length=5)
+    required_roles: str = Field(default="user", max_length=255)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+class WebAppResponse(SQLModel):
+    id: int
+    name: str
+    url: str
+    required_roles: str
+    description: Optional[str] = None
+
+class WebAppUpdate(SQLModel):
+    name: Optional[str] = Field(default=None, min_length=3, max_length=100)
+    url: Optional[str] = Field(default=None, min_length=5)
+    required_roles: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=500)
+
 # JWT Configuration
 SECRET_KEY = "your-secret-key-change-this-in-production-use-secrets-token-urlsafe-32"  # IMPORTANT: CHANGE THIS IN PRODUCTION!
 ALGORITHM = "HS256"
@@ -72,12 +103,6 @@ class Token(SQLModel):
 class TokenData(SQLModel):
     username: Optional[str] = None
     scopes: Optional[str] = None  # Will be used for roles/permissions later
-
-# Pydantic Model for Web App Data
-class WebAppData(SQLModel):
-    name: str
-    url: str
-    required_roles: List[str]  # Roles required to access this app
 
 # FastAPI Application
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -214,26 +239,22 @@ def get_portal():
 
 # --- Web App Listing Endpoint ---
 
-@app.get("/apps/", response_model=List[WebAppData])
-def get_available_apps(current_user: User = Depends(get_current_user)):
+@app.get("/apps/", response_model=List[WebAppResponse]) # Changed response_model to WebAppResponse
+def get_available_apps(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)): # Added session dependency
     """
     Returns a list of web applications available to the current user based on their roles.
+    Now fetches apps from the database.
     """
     user_roles = set(current_user.roles.split(','))
 
-    # Hardcoded list of applications for now - Updated with Docker container URLs
-    all_apps = [
-        WebAppData(name="Simple User App", url="http://localhost:5001", required_roles=["user"]),
-        WebAppData(name="Admin Dashboard", url="http://localhost:5002", required_roles=["admin"]),
-        WebAppData(name="Project Tracker", url="http://localhost:8082", required_roles=["user", "project_manager"]),
-        WebAppData(name="Sensitive Tool", url="http://localhost:8083", required_roles=["admin", "special_access"]),
-    ]
+    # Fetch all web apps from the database
+    all_apps_from_db = session.exec(select(WebApp)).all()
 
     # Filter apps based on user roles
     available_apps = []
-    for app in all_apps:
+    for app in all_apps_from_db: # Iterate through database apps
         # Check if user has at least one of the required roles for the app
-        if any(role in user_roles for role in app.required_roles):
+        if any(role in user_roles for role in app.required_roles.split(',')): # Split app's roles
             available_apps.append(app)
 
     return available_apps
@@ -360,6 +381,102 @@ def delete_user(
     session.delete(user)
     session.commit()
     return {} # No content response for successful deletion
+
+# NEW: WebApp CRUD Endpoints (Admin Only)
+
+@app.post("/apps/", response_model=WebAppResponse, status_code=status.HTTP_201_CREATED)
+def create_webapp(
+    webapp: WebAppCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
+    """
+    Creates a new web application entry in the database. (Admin only)
+    """
+    db_webapp = session.exec(select(WebApp).where(WebApp.name == webapp.name)).first()
+    if db_webapp:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Web application with this name already exists"
+        )
+
+    db_webapp = WebApp.model_validate(webapp) # More concise way to create instance from Pydantic model
+    session.add(db_webapp)
+    session.commit()
+    session.refresh(db_webapp)
+    return db_webapp
+
+@app.get("/apps/{webapp_id}", response_model=WebAppResponse)
+def read_webapp_by_id(
+    webapp_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
+    """
+    Retrieves a single web application by its ID. (Admin only)
+    """
+    webapp = session.get(WebApp, webapp_id)
+    if not webapp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Web application not found"
+        )
+    return webapp
+
+@app.patch("/apps/{webapp_id}", response_model=WebAppResponse)
+def update_webapp(
+    webapp_id: int,
+    webapp_update: WebAppUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
+    """
+    Updates an existing web application's information. (Admin only)
+    Allows partial updates.
+    """
+    db_webapp = session.get(WebApp, webapp_id)
+    if not db_webapp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Web application not found"
+        )
+
+    update_data = webapp_update.model_dump(exclude_unset=True)
+
+    # Check for name conflict if name is being updated
+    if "name" in update_data and update_data["name"] != db_webapp.name:
+        existing_webapp = session.exec(select(WebApp).where(WebApp.name == update_data["name"])).first()
+        if existing_webapp and existing_webapp.id != db_webapp.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Web application with this name already exists"
+            )
+
+    db_webapp.sqlmodel_update(update_data)
+    session.add(db_webapp)
+    session.commit()
+    session.refresh(db_webapp)
+    return db_webapp
+
+@app.delete("/apps/{webapp_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_webapp(
+    webapp_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
+    """
+    Deletes a web application from the database. (Admin only)
+    """
+    webapp = session.get(WebApp, webapp_id)
+    if not webapp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Web application not found"
+        )
+
+    session.delete(webapp)
+    session.commit()
+    return {}
 
 # JWT Utility Functions
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
