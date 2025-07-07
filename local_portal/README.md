@@ -296,39 +296,39 @@ A dedicated Docker Compose service (`backup-db`) is configured to copy your `dat
 
 **Quick Backup (service keeps running):**
 ```powershell
-.\quick-backup.ps1
+.\scripts\windows\quick-backup.ps1
 ```
 
 **Safe Backup (stops service temporarily):**
 ```powershell
-.\backup-database.ps1
+.\scripts\windows\backup-database.ps1
 ```
 
 **Interactive Management:**
 ```powershell
-.\backup-manager.ps1
+.\scripts\windows\backup-manager.ps1
 ```
 
 #### Linux/macOS (Bash)
 
 First, make scripts executable:
 ```bash
-chmod +x *.sh
+chmod +x scripts/linux/*.sh
 ```
 
 **Quick Backup (service keeps running):**
 ```bash
-./quick_backup.sh
+./scripts/linux/quick_backup.sh
 ```
 
 **Safe Backup (stops service temporarily):**
 ```bash
-./backup_db.sh
+./scripts/linux/backup_db.sh
 ```
 
 **Interactive Management:**
 ```bash
-./backup_manager.sh
+./scripts/linux/backup_manager.sh
 ```
 
 #### Manual Docker Command
@@ -343,7 +343,7 @@ docker compose run --rm backup-db
 #### Windows (PowerShell)
 
 ```powershell
-.\restore-database.ps1
+.\scripts\windows\restore-database.ps1
 ```
 
 This script will:
@@ -356,12 +356,12 @@ This script will:
 #### Linux/macOS (Bash)
 
 ```bash
-./restore_db.sh
+./scripts/linux/restore_db.sh
 ```
 
 You can also specify a backup file directly:
 ```bash
-./restore_db.sh database_backup_20250107_143022.db
+./scripts/linux/restore_db.sh database_backup_20250107_143022.db
 ```
 
 ### Automated Backup Scripts
@@ -369,19 +369,19 @@ You can also specify a backup file directly:
 The portal includes comprehensive backup management:
 
 #### Windows Scripts
-- `backup-database.ps1` - Safe backup with service management
-- `quick-backup.ps1` - Quick backup without stopping service
-- `restore-database.ps1` - Interactive restore with safety features
-- `cleanup-backups.ps1` - Manage old backup files
-- `backup-manager.ps1` - Menu-driven interface
+- `scripts/windows/backup-database.ps1` - Safe backup with service management
+- `scripts/windows/quick-backup.ps1` - Quick backup without stopping service
+- `scripts/windows/restore-database.ps1` - Interactive restore with safety features
+- `scripts/windows/cleanup-backups.ps1` - Manage old backup files
+- `scripts/windows/backup-manager.ps1` - Menu-driven interface
 
 #### Linux Scripts
-- `backup_db.sh` - Safe backup with service management
-- `quick_backup.sh` - Quick backup without stopping service
-- `restore_db.sh` - Interactive restore with safety features
-- `cleanup_backups.sh` - Manage old backup files
-- `backup_manager.sh` - Menu-driven interface
-- `setup_cron.sh` - Automated scheduling with cron
+- `scripts/linux/backup_db.sh` - Safe backup with service management
+- `scripts/linux/quick_backup.sh` - Quick backup without stopping service
+- `scripts/linux/restore_db.sh` - Interactive restore with safety features
+- `scripts/linux/cleanup_backups.sh` - Manage old backup files
+- `scripts/linux/backup_manager.sh` - Menu-driven interface
+- `scripts/linux/setup_cron.sh` - Automated scheduling with cron
 
 #### Automated Scheduling
 
@@ -391,13 +391,13 @@ Use Windows Task Scheduler to run backup scripts automatically.
 **Linux/macOS (Cron):**
 ```bash
 # Set up daily backups at 3:00 AM
-./setup_cron.sh daily
+./scripts/linux/setup_cron.sh daily
 
 # Set up weekly backups on Sunday at 2:30 AM
-./setup_cron.sh weekly
+./scripts/linux/setup_cron.sh weekly
 
 # Custom schedule
-./setup_cron.sh custom
+./scripts/linux/setup_cron.sh custom
 ```
 
 ## 8. Developing and Integrating New Web Apps
@@ -657,10 +657,10 @@ docker compose ps
 docker compose logs app
 
 # Create backup (Windows)
-.\quick-backup.ps1
+.\scripts\windows\quick-backup.ps1
 
 # Create backup (Linux)
-./quick_backup.sh
+./scripts/linux/quick_backup.sh
 
 # Stop the portal
 docker compose down

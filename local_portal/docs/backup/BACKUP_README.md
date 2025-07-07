@@ -8,13 +8,13 @@ This directory contains a dockerized backup solution for your SQLite database. T
 
 **Safe backup (recommended):**
 ```powershell
-.\backup-database.ps1
+.\scripts\windows\backup-database.ps1
 ```
 This stops the app service, creates the backup, then restarts the service.
 
 **Quick backup (while service is running):**
 ```powershell
-.\quick-backup.ps1
+.\scripts\windows\quick-backup.ps1
 ```
 This creates a backup without stopping the service. Use when the database is not heavily in use.
 
@@ -26,7 +26,7 @@ docker-compose run --rm backup-db
 ### Restoring a Backup
 
 ```powershell
-.\restore-database.ps1
+.\scripts\windows\restore-database.ps1
 ```
 This script will:
 1. Show you available backup files
@@ -62,7 +62,7 @@ You can use Windows Task Scheduler to run backups automatically:
 2. Create a new task
 3. Set it to run `powershell.exe` with arguments:
    ```
-   -ExecutionPolicy Bypass -File "F:\WORKWORK\FULL\portailWebapp\local_portal\backup-database.ps1"
+   -ExecutionPolicy Bypass -File "F:\WORKWORK\FULL\portailWebapp\local_portal\scripts\windows\backup-database.ps1"
    ```
 4. Schedule it to run daily, weekly, etc.
 
@@ -141,9 +141,11 @@ Get-ChildItem .\backups\database_backup_*.db | Sort-Object LastWriteTime -Descen
 ```
 local_portal/
 ├── docker-compose.yml          # Contains backup-db service
-├── backup-database.ps1         # Safe backup script (stops service)
-├── quick-backup.ps1           # Quick backup script (service running)
-├── restore-database.ps1       # Interactive restore script
+├── scripts/
+│   └── windows/
+│       ├── backup-database.ps1         # Safe backup script (stops service)
+│       ├── quick-backup.ps1           # Quick backup script (service running)
+│       └── restore-database.ps1       # Interactive restore script
 ├── data/
 │   └── database.db           # Your main database file
 └── backups/                  # Backup files directory

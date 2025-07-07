@@ -17,31 +17,31 @@ This documentation covers the Linux shell scripts for managing database backups 
 
 ### Make Scripts Executable
 ```bash
-chmod +x *.sh
+chmod +x scripts/linux/*.sh
 ```
 
 ### Create a Backup
 ```bash
 # Safe backup (recommended)
-./backup_db.sh
+./scripts/linux/backup_db.sh
 
 # Quick backup (service keeps running)
-./quick_backup.sh
+./scripts/linux/quick_backup.sh
 
 # Interactive menu
-./backup_manager.sh
+./scripts/linux/backup_manager.sh
 ```
 
 ### Automated Scheduling
 ```bash
 # Set up daily backups at 3 AM
-./setup_cron.sh daily
+./scripts/linux/setup_cron.sh daily
 
 # Set up weekly backups on Sunday at 2:30 AM
-./setup_cron.sh weekly
+./scripts/linux/setup_cron.sh weekly
 
 # Custom schedule
-./setup_cron.sh custom
+./scripts/linux/setup_cron.sh custom
 ```
 
 ## 📋 Detailed Script Documentation
@@ -59,7 +59,7 @@ chmod +x *.sh
 
 **Usage**:
 ```bash
-./backup_db.sh
+./scripts/linux/backup_db.sh
 ```
 
 **Output**:
@@ -77,7 +77,7 @@ chmod +x *.sh
 
 **Usage**:
 ```bash
-./quick_backup.sh
+./scripts/linux/quick_backup.sh
 ```
 
 ### restore_db.sh
@@ -93,10 +93,10 @@ chmod +x *.sh
 **Usage**:
 ```bash
 # Interactive selection
-./restore_db.sh
+./scripts/linux/restore_db.sh
 
 # Specify backup file
-./restore_db.sh database_backup_20250107_143022.db
+./scripts/linux/restore_db.sh database_backup_20250107_143022.db
 ```
 
 ### cleanup_backups.sh
@@ -112,10 +112,10 @@ chmod +x *.sh
 **Usage**:
 ```bash
 # Keep last 10 backups (default)
-./cleanup_backups.sh
+./scripts/linux/cleanup_backups.sh
 
 # Keep last 5 backups
-./cleanup_backups.sh 5
+./scripts/linux/cleanup_backups.sh 5
 ```
 
 ### backup_manager.sh
@@ -130,7 +130,7 @@ chmod +x *.sh
 
 **Usage**:
 ```bash
-./backup_manager.sh
+./scripts/linux/backup_manager.sh
 ```
 
 **Menu Options**:
@@ -156,22 +156,22 @@ chmod +x *.sh
 **Usage**:
 ```bash
 # Set up daily backups
-./setup_cron.sh daily
+./scripts/linux/setup_cron.sh daily
 
 # Set up weekly backups  
-./setup_cron.sh weekly
+./scripts/linux/setup_cron.sh weekly
 
 # Every 6 hours
-./setup_cron.sh hourly6
+./scripts/linux/setup_cron.sh hourly6
 
 # Custom schedule
-./setup_cron.sh custom
+./scripts/linux/setup_cron.sh custom
 
 # List current jobs
-./setup_cron.sh list
+./scripts/linux/setup_cron.sh list
 
 # Remove backup job
-./setup_cron.sh remove
+./scripts/linux/setup_cron.sh remove
 ```
 
 ## 🔧 Cron Schedule Examples
@@ -292,7 +292,7 @@ ls -la docker-compose.yml
 **Backup fails with "database locked"**
 ```bash
 # Use safe backup instead of quick backup
-./backup_db.sh
+./scripts/linux/backup_db.sh
 ```
 
 ### Log Analysis
@@ -346,7 +346,7 @@ df -h .
 du -sh backups/
 
 # Clean up old backups automatically
-./cleanup_backups.sh 10
+./scripts/linux/cleanup_backups.sh 10
 ```
 
 ### Log Rotation
