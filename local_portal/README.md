@@ -549,7 +549,7 @@ Remove-Item -Recurse -Force node_modules, package-lock.json  # PowerShell
 
 npm install
 ```
-
+  
 #### Service Health Issues
 
 **Check service status:**
