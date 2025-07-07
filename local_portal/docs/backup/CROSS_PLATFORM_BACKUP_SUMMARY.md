@@ -38,25 +38,25 @@ Your portal application now has a **complete cross-platform database backup syst
 ### Windows (PowerShell)
 ```powershell
 # Create backup
-.\backup-database.ps1
+.\scripts\windows\backup-database.ps1
 
 # Interactive management
-.\backup-manager.ps1
+.\scripts\windows\backup-manager.ps1
 
 # Quick backup
-.\quick-backup.ps1
+.\scripts\windows\quick-backup.ps1
 ```
 
 ### Linux (Bash)
 ```bash
 # Make scripts executable
-chmod +x *.sh
+chmod +x scripts/linux/*.sh
 
 # Create backup
-./backup_db.sh
+./scripts/linux/backup_db.sh
 
 # Interactive management  
-./backup_manager.sh
+./scripts/linux/backup_manager.sh
 
 # Set up automation
 ./setup_cron.sh daily
@@ -147,10 +147,10 @@ Both Windows and Linux implementations provide:
 
 ### Linux Deployment
 1. **Transfer files** to Linux server
-2. **Make scripts executable**: `chmod +x *.sh`
+2. **Make scripts executable**: `chmod +x scripts/linux/*.sh`
 3. **Test Docker**: Ensure Docker and docker-compose are installed
-4. **Run initial backup**: `./backup_db.sh`
-5. **Set up automation**: `./setup_cron.sh daily`
+4. **Run initial backup**: `./scripts/linux/backup_db.sh`
+5. **Set up automation**: `./scripts/linux/setup_cron.sh daily`
 
 ## 📈 Next Steps & Recommendations
 

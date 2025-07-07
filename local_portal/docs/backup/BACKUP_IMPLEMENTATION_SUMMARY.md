@@ -19,7 +19,7 @@ Your portal application now has a complete dockerized backup system with the fol
 
 **Create a backup (recommended):**
 ```powershell
-.\backup-database.ps1
+.\scripts\windows\backup-database.ps1
 ```
 
 **Quick backup (while running):**
@@ -29,7 +29,7 @@ Your portal application now has a complete dockerized backup system with the fol
 
 **Interactive backup management:**
 ```powershell
-.\backup-manager.ps1
+.\scripts\windows\backup-manager.ps1
 ```
 
 **Manual Docker command:**
