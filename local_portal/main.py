@@ -83,7 +83,8 @@ class WebAppData(SQLModel):
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from passlib.context import CryptContext
 from contextlib import asynccontextmanager
 
@@ -101,6 +102,9 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
 
 app = FastAPI(title="Local Portal Backend", lifespan=lifespan)
+
+# Mount static files (our HTML portal)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
@@ -192,16 +196,19 @@ def get_current_active_admin_user(current_user: User = Depends(get_current_user)
     return current_user
 
 # API Endpoints
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to the Local Portal Backend!"}
+@app.get("/", include_in_schema=False)
+def serve_portal():
+    """
+    Serves the web portal frontend HTML page as the root endpoint.
+    """
+    return FileResponse("static/portal_frontend.html")
 
 @app.get("/portal", response_class=HTMLResponse)
 def get_portal():
     """
-    Serves the web portal frontend HTML page.
+    Alternative endpoint to serve the web portal frontend HTML page.
     """
-    with open("portal_frontend.html", "r", encoding="utf-8") as f:
+    with open("static/portal_frontend.html", "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
@@ -214,12 +221,12 @@ def get_available_apps(current_user: User = Depends(get_current_user)):
     """
     user_roles = set(current_user.roles.split(','))
 
-    # Hardcoded list of applications for now
+    # Hardcoded list of applications for now - Updated with Docker container URLs
     all_apps = [
-        WebAppData(name="File Manager", url="http://127.0.0.1:8080", required_roles=["user"]),
-        WebAppData(name="Admin Dashboard", url="http://127.0.0.1:8081", required_roles=["admin"]),
-        WebAppData(name="Project Tracker", url="http://127.0.0.1:8082", required_roles=["user", "project_manager"]),
-        WebAppData(name="Sensitive Tool", url="http://127.0.0.1:8083", required_roles=["admin", "special_access"]),
+        WebAppData(name="Simple User App", url="http://localhost:5001", required_roles=["user"]),
+        WebAppData(name="Admin Dashboard", url="http://localhost:5002", required_roles=["admin"]),
+        WebAppData(name="Project Tracker", url="http://localhost:8082", required_roles=["user", "project_manager"]),
+        WebAppData(name="Sensitive Tool", url="http://localhost:8083", required_roles=["admin", "special_access"]),
     ]
 
     # Filter apps based on user roles
