@@ -12,7 +12,7 @@ from passlib.context import CryptContext
 # Add the current directory to path to import our models
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from main import User, create_db_and_tables
+from main import User, Role, create_db_and_tables
 
 # Database setup
 DATABASE_FILE = os.getenv("DATABASE_FILE", "database.db")
@@ -38,7 +38,8 @@ def create_initial_users():
         if existing_users:
             print(f"Found {len(existing_users)} existing users. Skipping user creation.")
             for user in existing_users:
-                print(f"  - {user.username} (roles: {user.roles})")
+                role_names = [role.name for role in user.roles]
+                print(f"  - {user.username} (roles: {role_names})")
             return
         
         # Create initial users
@@ -46,36 +47,48 @@ def create_initial_users():
             {
                 "username": "admin",
                 "password": "admin123",
-                "roles": "admin,user"
+                "roles": ["admin", "user"]
             },
             {
                 "username": "testuser", 
                 "password": "user123",
-                "roles": "user"
+                "roles": ["user"]
             },
             {
                 "username": "manager",
                 "password": "manager123", 
-                "roles": "user,project_manager"
+                "roles": ["user", "project_manager"]
             },
             {
                 "username": "specialuser",
                 "password": "special123",
-                "roles": "admin,user,special_access"
+                "roles": ["admin", "user", "special_access"]
             }
         ]
         
         for user_data in users_to_create:
             hashed_password = get_password_hash(user_data["password"])
+            
+            # Create the User object
             db_user = User(
                 username=user_data["username"],
-                hashed_password=hashed_password, 
-                roles=user_data["roles"]
+                hashed_password=hashed_password
             )
             session.add(db_user)
+            session.commit()
+            session.refresh(db_user)  # Get the auto-generated ID
+            
+            # Add roles to the user
+            for role_name in user_data["roles"]:
+                role = session.exec(select(Role).where(Role.name == role_name)).first()
+                if role:
+                    db_user.roles.append(role)
+                else:
+                    print(f"Warning: Role '{role_name}' not found for user {user_data['username']}")
+            
+            session.commit()
             print(f"Created user: {user_data['username']} (roles: {user_data['roles']})")
         
-        session.commit()
         print(f"\nSuccessfully created {len(users_to_create)} initial users!")
         print("\nYou can now log in with:")
         for user_data in users_to_create:

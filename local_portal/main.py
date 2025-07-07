@@ -1,9 +1,10 @@
 # main.py
 import os
-from typing import Optional, List
-from sqlmodel import Field, SQLModel, create_engine, Session, select
+from typing import Optional, List, TYPE_CHECKING
+from sqlmodel import Field, SQLModel, create_engine, Session, select, Relationship
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
+from pydantic import field_validator
 
 # Database setup
 DATABASE_FILE = os.getenv("DATABASE_FILE", "database.db")
@@ -13,10 +14,44 @@ engine = create_engine(sqlite_url, echo=True) # echo=True for logging SQL querie
 def create_db_and_tables():
     """
     Creates all tables defined by SQLModel metadata if they don't already exist.
+    Also initializes default roles.
     """
     SQLModel.metadata.create_all(engine)
+    print("Database tables created.")
 
-# User Model Definition
+    # NEW: Initialize default roles if they don't exist
+    with Session(engine) as session:
+        default_roles = ["admin", "user", "project_manager", "special_access"]
+        for role_name in default_roles:
+            role = session.exec(select(Role).where(Role.name == role_name)).first()
+            if not role:
+                new_role = Role(name=role_name)
+                session.add(new_role)
+                print(f"Added default role: {role_name}")
+        session.commit()
+        print("Default roles ensured.")
+
+# NEW: Association Table for User and Role (Many-to-Many)
+class UserRoleLink(SQLModel, table=True):
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id", primary_key=True)
+    role_id: Optional[int] = Field(default=None, foreign_key="role.id", primary_key=True)
+
+# NEW: Association Table for WebApp and Role (Many-to-Many)
+class WebAppRoleLink(SQLModel, table=True):
+    webapp_id: Optional[int] = Field(default=None, foreign_key="webapp.id", primary_key=True)
+    role_id: Optional[int] = Field(default=None, foreign_key="role.id", primary_key=True)
+
+# NEW: Role Model
+class Role(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True, min_length=2, max_length=50)
+    description: Optional[str] = Field(default=None, max_length=255)
+
+    # Relationships (back-references)
+    users: List["User"] = Relationship(back_populates="roles", link_model=UserRoleLink)
+    web_apps: List["WebApp"] = Relationship(back_populates="required_by_roles", link_model=WebAppRoleLink)
+
+# UPDATED: User Model Definition
 class User(SQLModel, table=True):
     """
     Represents a user in the system.
@@ -24,22 +59,23 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True, min_length=3, max_length=50)
     hashed_password: str
-    # For now, we'll keep roles simple as a string, but we can make it more sophisticated later.
-    roles: str = Field(default="user", max_length=255) # Comma-separated roles, e.g., "admin,webapp1_access"
 
-# Pydantic Schemas for API Requests/Responses
-# These define what data we expect when creating/updating users,
-# and what data we return. They can differ from the database model.
+    # NEW: Relationship to roles via UserRoleLink
+    roles: List["Role"] = Relationship(back_populates="users", link_model=UserRoleLink)
 
+# UPDATED: Pydantic Schemas for API Requests/Responses
+
+# UPDATED: Pydantic Model for User Creation
 class UserCreate(SQLModel):
     """
     Schema for creating a new user.
     Password is required.
     """
     username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=8) # Ensure password meets minimum length
-    roles: Optional[str] = Field(default="user", max_length=255) # Allow setting roles during creation
+    password: str = Field(min_length=8)
+    roles: Optional[List[str]] = Field(default_factory=list) # Now a list of role names
 
+# UPDATED: Pydantic Model for User Update (for partial updates)
 class UserUpdate(SQLModel):
     """
     Schema for updating an existing user.
@@ -47,8 +83,9 @@ class UserUpdate(SQLModel):
     """
     username: Optional[str] = Field(default=None, min_length=3, max_length=50)
     password: Optional[str] = Field(default=None, min_length=8)
-    roles: Optional[str] = Field(default=None, max_length=255)
+    roles: Optional[List[str]] = Field(default=None) # Now a list of role names
 
+# UPDATED: Pydantic Model for User Response (what we send back to the client, without the hashed password)
 class UserResponse(SQLModel):
     """
     Schema for returning user data.
@@ -56,37 +93,62 @@ class UserResponse(SQLModel):
     """
     id: int
     username: str
-    roles: str
+    roles: List[str] # Now a list of role names
 
-# NEW: WebApp Model and Pydantic Models
+    # This method is for Pydantic to know how to create the response from the DB object
+    model_config = {"from_attributes": True} # Use from_attributes for Pydantic v2
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def extract_role_names(cls, roles_list):
+        """Extracts role names from a list of Role objects."""
+        if isinstance(roles_list, list) and all(hasattr(role, 'name') for role in roles_list):
+            return [role.name for role in roles_list]
+        return roles_list
+
+# UPDATED: WebApp Model Definition
 class WebApp(SQLModel, table=True):
     """
     Represents a web application that can be accessed via the portal.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True, min_length=3, max_length=100)
-    url: str = Field(min_length=5) # e.g., http://localhost:5001
-    # Comma-separated list of roles required to see/access this app
-    required_roles: str = Field(default="user", max_length=255)
+    url: str = Field(min_length=5)
     description: Optional[str] = Field(default=None, max_length=500)
 
+    # NEW: Relationship to roles via WebAppRoleLink
+    required_by_roles: List["Role"] = Relationship(back_populates="web_apps", link_model=WebAppRoleLink)
+
+# UPDATED: Pydantic Model for Web App Creation
 class WebAppCreate(SQLModel):
     name: str = Field(min_length=3, max_length=100)
     url: str = Field(min_length=5)
-    required_roles: str = Field(default="user", max_length=255)
+    required_roles: Optional[List[str]] = Field(default_factory=list) # Now a list of role names
     description: Optional[str] = Field(default=None, max_length=500)
 
+# UPDATED: Pydantic Model for Web App Response
 class WebAppResponse(SQLModel):
     id: int
     name: str
     url: str
-    required_roles: str
+    required_roles: List[str] # Now a list of role names
     description: Optional[str] = None
 
+    model_config = {"from_attributes": True} # Use from_attributes for Pydantic v2
+
+    @field_validator("required_roles", mode="before")
+    @classmethod
+    def extract_role_names_webapp(cls, roles_list):
+        """Extracts role names from a list of Role objects."""
+        if isinstance(roles_list, list) and all(hasattr(role, 'name') for role in roles_list):
+            return [role.name for role in roles_list]
+        return roles_list
+
+# UPDATED: Pydantic Model for Web App Update
 class WebAppUpdate(SQLModel):
     name: Optional[str] = Field(default=None, min_length=3, max_length=100)
     url: Optional[str] = Field(default=None, min_length=5)
-    required_roles: Optional[str] = Field(default=None, max_length=255)
+    required_roles: Optional[List[str]] = Field(default=None) # Now a list of role names
     description: Optional[str] = Field(default=None, max_length=500)
 
 # JWT Configuration
@@ -213,7 +275,8 @@ def get_current_active_admin_user(current_user: User = Depends(get_current_user)
     """
     Dependency to get the current authenticated user and check if they have 'admin' role.
     """
-    if "admin" not in current_user.roles.split(','):
+    user_role_names = [role.name for role in current_user.roles]
+    if "admin" not in user_role_names:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -245,7 +308,7 @@ def get_available_apps(current_user: User = Depends(get_current_user), session: 
     Returns a list of web applications available to the current user based on their roles.
     Now fetches apps from the database.
     """
-    user_roles = set(current_user.roles.split(','))
+    user_role_names = set([role.name for role in current_user.roles])
 
     # Fetch all web apps from the database
     all_apps_from_db = session.exec(select(WebApp)).all()
@@ -253,8 +316,9 @@ def get_available_apps(current_user: User = Depends(get_current_user), session: 
     # Filter apps based on user roles
     available_apps = []
     for app in all_apps_from_db: # Iterate through database apps
+        app_role_names = set([role.name for role in app.required_by_roles])
         # Check if user has at least one of the required roles for the app
-        if any(role in user_roles for role in app.required_roles.split(',')): # Split app's roles
+        if user_role_names.intersection(app_role_names):
             available_apps.append(app)
 
     return available_apps
@@ -281,13 +345,31 @@ def create_user(
     # Hash the password
     hashed_password = get_password_hash(user.password)
 
-    # Create the User object for the database
-    db_user = User(username=user.username, hashed_password=hashed_password, roles=user.roles)
-
-    # Add to session and commit to database
+    # Create the User object for the database (without roles initially)
+    db_user = User(username=user.username, hashed_password=hashed_password)
     session.add(db_user)
     session.commit()
     session.refresh(db_user) # Refresh to get the auto-generated ID
+
+    # Handle roles: find or create Role objects and link them to the user
+    if user.roles:
+        for role_name in user.roles:
+            role = session.exec(select(Role).where(Role.name == role_name)).first()
+            if not role:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Role '{role_name}' does not exist"
+                )
+            # Add role to user's roles
+            db_user.roles.append(role)
+    else:
+        # Default to 'user' role if no roles specified
+        default_role = session.exec(select(Role).where(Role.name == "user")).first()
+        if default_role:
+            db_user.roles.append(default_role)
+
+    session.commit()
+    session.refresh(db_user) # Refresh to get the updated relationships
 
     return db_user
 
@@ -343,8 +425,7 @@ def update_user(
 
     # Handle password separately
     if "password" in update_data:
-        update_data["hashed_password"] = get_password_hash(update_data["password"])
-        del update_data["password"] # Remove plain password from update_data
+        db_user.hashed_password = get_password_hash(update_data["password"])
 
     # Check for username conflict if username is being updated
     if "username" in update_data and update_data["username"] != db_user.username:
@@ -354,12 +435,24 @@ def update_user(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Username already registered by another user"
             )
+        db_user.username = update_data["username"]
 
-    # Update the user object with the new data
-    for field, value in update_data.items():
-        setattr(db_user, field, value)
+    # Handle roles separately
+    if "roles" in update_data:
+        # Clear existing roles
+        db_user.roles.clear()
+        
+        # Add new roles
+        if update_data["roles"]:
+            for role_name in update_data["roles"]:
+                role = session.exec(select(Role).where(Role.name == role_name)).first()
+                if not role:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Role '{role_name}' does not exist"
+                    )
+                db_user.roles.append(role)
 
-    session.add(db_user) # Re-add to session to track changes
     session.commit()
     session.refresh(db_user) # Refresh to get latest state from DB
 
@@ -400,10 +493,36 @@ def create_webapp(
             detail="Web application with this name already exists"
         )
 
-    db_webapp = WebApp.model_validate(webapp) # More concise way to create instance from Pydantic model
+    # Create the WebApp object for the database (without roles initially)
+    db_webapp = WebApp(
+        name=webapp.name, 
+        url=webapp.url, 
+        description=webapp.description
+    )
     session.add(db_webapp)
     session.commit()
-    session.refresh(db_webapp)
+    session.refresh(db_webapp) # Refresh to get the auto-generated ID
+
+    # Handle required_roles: find Role objects and link them to the webapp
+    if webapp.required_roles:
+        for role_name in webapp.required_roles:
+            role = session.exec(select(Role).where(Role.name == role_name)).first()
+            if not role:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Role '{role_name}' does not exist"
+                )
+            # Add role to webapp's required roles
+            db_webapp.required_by_roles.append(role)
+    else:
+        # Default to 'user' role if no roles specified
+        default_role = session.exec(select(Role).where(Role.name == "user")).first()
+        if default_role:
+            db_webapp.required_by_roles.append(default_role)
+
+    session.commit()
+    session.refresh(db_webapp) # Refresh to get the updated relationships
+
     return db_webapp
 
 @app.get("/apps/{webapp_id}", response_model=WebAppResponse)
@@ -451,9 +570,30 @@ def update_webapp(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Web application with this name already exists"
             )
+        db_webapp.name = update_data["name"]
 
-    db_webapp.sqlmodel_update(update_data)
-    session.add(db_webapp)
+    # Update basic fields
+    if "url" in update_data:
+        db_webapp.url = update_data["url"]
+    if "description" in update_data:
+        db_webapp.description = update_data["description"]
+
+    # Handle required_roles separately
+    if "required_roles" in update_data:
+        # Clear existing roles
+        db_webapp.required_by_roles.clear()
+        
+        # Add new roles
+        if update_data["required_roles"]:
+            for role_name in update_data["required_roles"]:
+                role = session.exec(select(Role).where(Role.name == role_name)).first()
+                if not role:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Role '{role_name}' does not exist"
+                    )
+                db_webapp.required_by_roles.append(role)
+
     session.commit()
     session.refresh(db_webapp)
     return db_webapp
@@ -508,8 +648,11 @@ def login_for_access_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Convert roles to comma-separated string for token
+    user_role_names = [role.name for role in user.roles]
+    roles_string = ",".join(user_role_names)
     access_token = create_access_token(
-        data={"sub": user.username, "roles": user.roles},  # Store username and roles in token
+        data={"sub": user.username, "roles": roles_string},  # Store username and roles in token
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
