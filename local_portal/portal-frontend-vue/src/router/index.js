@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import LoginView from '../views/LoginView.vue';
 import AppsView from '../views/AppsView.vue';
+import AdminDashboardView from '../views/AdminDashboardView.vue';
+import UserManagementView from '../views/UserManagementView.vue';
 import store from '../store'; // Import your Vuex store
 
 const routes = [
@@ -14,6 +16,20 @@ const routes = [
     name: 'Apps',
     component: AppsView,
     meta: { requiresAuth: true } // Meta field to protect this route
+  },
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: AdminDashboardView,
+    meta: { requiresAuth: true, requiresAdmin: true },
+    children: [
+      {
+        path: 'users',
+        name: 'ManageUsers',
+        component: UserManagementView
+      }
+      // { path: 'apps', name: 'ManageWebApps', component: WebAppManagementView } // Will be added next
+    ]
   },
   {
     path: '/',
@@ -33,7 +49,28 @@ router.beforeEach((to, from, next) => {
     if (!store.state.token) {
       next({ name: 'Login' }); // Not logged in, redirect to login page
     } else {
-      next(); // Go to the route
+      // Check if route requires admin access
+      if (to.matched.some(record => record.meta.requiresAdmin)) {
+        // Ensure user info is loaded
+        if (!store.state.user) {
+          // Try to fetch user info first
+          store.dispatch('fetchUserInfo').then(() => {
+            if (store.getters.isAdmin) {
+              next(); // User is admin, allow access
+            } else {
+              next({ name: 'Apps' }); // Not admin, redirect to apps
+            }
+          });
+        } else {
+          if (store.getters.isAdmin) {
+            next(); // User is admin, allow access
+          } else {
+            next({ name: 'Apps' }); // Not admin, redirect to apps
+          }
+        }
+      } else {
+        next(); // Route doesn't require admin, allow access
+      }
     }
   } else {
     next(); // Does not require auth, allow access

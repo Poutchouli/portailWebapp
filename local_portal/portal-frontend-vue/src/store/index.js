@@ -103,7 +103,8 @@ const store = createStore({
   getters: {
     isAuthenticated: state => state.isAuthenticated,
     user: state => state.user,
-    token: state => state.token
+    token: state => state.token,
+    isAdmin: state => state.user && state.user.roles && state.user.roles.includes('admin')
   }
 })
 

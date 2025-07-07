@@ -1,7 +1,16 @@
 <template>
   <div class="apps-container">
-    <h2>Available WebApps for {{ username }}</h2>
-    <button @click="logout">Logout</button>
+    <div class="header">
+      <h2>Available WebApps for {{ user ? user.username : 'User' }}</h2>
+      <nav class="top-nav">
+        <router-link v-if="isAdmin" to="/admin" class="admin-link">
+          <span class="nav-icon">⚙️</span>
+          Admin Dashboard
+        </router-link>
+        <button @click="logout" class="logout-btn">Logout</button>
+      </nav>
+    </div>
+    
     <ul v-if="apps.length > 0" class="app-list">
       <li v-for="app in apps" :key="app.id">
         <span>{{ app.name }}</span>
@@ -16,7 +25,7 @@
 </template>
 
 <script>
-import { mapState, mapActions } from 'vuex';
+import { mapState, mapActions, mapGetters } from 'vuex';
 
 export default {
   name: 'AppsView',
@@ -28,7 +37,8 @@ export default {
     };
   },
   computed: {
-    ...mapState(['token', 'username']) // Get token and username from Vuex state
+    ...mapState(['token', 'user']),
+    ...mapGetters(['isAdmin'])
   },
   watch: {
     token: {
@@ -87,18 +97,62 @@ export default {
   box-shadow: 0 2px 5px rgba(0,0,0,0.1);
   background-color: #fff;
 }
-button {
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.header h2 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.top-nav {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.admin-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 15px;
+  background-color: #17a2b8;
+  color: white;
+  text-decoration: none;
+  border-radius: 4px;
+  font-weight: bold;
+  transition: background-color 0.3s ease;
+}
+
+.admin-link:hover {
+  background-color: #138496;
+}
+
+.nav-icon {
+  font-size: 16px;
+}
+
+.logout-btn {
   padding: 8px 12px;
   background-color: #dc3545;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  margin-bottom: 20px;
+  font-weight: bold;
 }
-button:hover {
+
+.logout-btn:hover {
   background-color: #c82333;
 }
+
 .app-list {
   list-style: none;
   padding: 0;
