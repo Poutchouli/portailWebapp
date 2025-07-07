@@ -35,8 +35,8 @@ class UserCreate(SQLModel):
     Password is required.
     """
     username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=6) # Password field for input, will be hashed
-    roles: str = "user" # Default role, can be overridden
+    password: str = Field(min_length=8) # Ensure password meets minimum length
+    roles: Optional[str] = Field(default="user", max_length=255) # Allow setting roles during creation
 
 class UserUpdate(SQLModel):
     """
@@ -44,7 +44,7 @@ class UserUpdate(SQLModel):
     All fields are optional, meaning you can update only specific ones.
     """
     username: Optional[str] = Field(default=None, min_length=3, max_length=50)
-    password: Optional[str] = Field(default=None, min_length=6)
+    password: Optional[str] = Field(default=None, min_length=8)
     roles: Optional[str] = Field(default=None, max_length=255)
 
 class UserResponse(SQLModel):
@@ -104,23 +104,28 @@ def read_root():
 @app.post("/users/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(user: UserCreate, session: Session = Depends(get_session)):
     """
-    Creates a new user.
-    Expects username, password, and optional roles.
-    Hashes the password before storing.
+    Registers a new user in the system.
     """
+    # Check if username already exists
     db_user = session.exec(select(User).where(User.username == user.username)).first()
     if db_user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Username already registered"
         )
 
+    # Hash the password
     hashed_password = get_password_hash(user.password)
-    new_user = User(username=user.username, hashed_password=hashed_password, roles=user.roles)
-    session.add(new_user)
+
+    # Create the User object for the database
+    db_user = User(username=user.username, hashed_password=hashed_password, roles=user.roles)
+
+    # Add to session and commit to database
+    session.add(db_user)
     session.commit()
-    session.refresh(new_user)
-    return new_user
+    session.refresh(db_user) # Refresh to get the auto-generated ID
+
+    return db_user
 
 @app.get("/users/", response_model=List[UserResponse])
 def read_users(offset: int = 0, limit: int = 100, session: Session = Depends(get_session)):
@@ -143,35 +148,49 @@ def read_user(user_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
-@app.put("/users/{user_id}", response_model=UserResponse)
-def update_user(user_id: int, user_update: UserUpdate, session: Session = Depends(get_session)):
+@app.patch("/users/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: int,
+    user_update: UserUpdate,
+    session: Session = Depends(get_session)
+):
     """
-    Updates an existing user's details (username, password, roles).
-    Only updates provided fields. Hashes new password if provided.
+    Updates an existing user's information.
+    Allows partial updates (e.g., just username, or just password, or just roles).
     """
-    user = session.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    db_user = session.get(User, user_id)
+    if not db_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
 
-    # Update fields if provided in the request
-    if user_update.username is not None:
-        # Check if new username already exists for another user
-        existing_user = session.exec(select(User).where(User.username == user_update.username)).first()
-        if existing_user and existing_user.id != user_id:
+    # Apply updates only for provided fields
+    update_data = user_update.model_dump(exclude_unset=True) # Exclude fields that were not set in the request
+
+    # Handle password separately
+    if "password" in update_data:
+        update_data["hashed_password"] = get_password_hash(update_data["password"])
+        del update_data["password"] # Remove plain password from update_data
+
+    # Check for username conflict if username is being updated
+    if "username" in update_data and update_data["username"] != db_user.username:
+        existing_user = session.exec(select(User).where(User.username == update_data["username"])).first()
+        if existing_user and existing_user.id != db_user.id: # Ensure it's not the current user
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Username already registered by another user"
             )
-        user.username = user_update.username
-    if user_update.password is not None:
-        user.hashed_password = get_password_hash(user_update.password)
-    if user_update.roles is not None:
-        user.roles = user_update.roles
 
-    session.add(user) # Re-add to session to mark as modified
+    # Update the user object with the new data
+    for field, value in update_data.items():
+        setattr(db_user, field, value)
+
+    session.add(db_user) # Re-add to session to track changes
     session.commit()
-    session.refresh(user) # Refresh to get latest data from DB
-    return user
+    session.refresh(db_user) # Refresh to get latest state from DB
+
+    return db_user
 
 @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(user_id: int, session: Session = Depends(get_session)):

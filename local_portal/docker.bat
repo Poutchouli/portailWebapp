@@ -27,14 +27,20 @@ if "%1"=="restart" (
 )
 
 if "%1"=="logs" (
-    echo Showing logs...
-    docker-compose logs -f app
+    echo Showing recent logs...
+    docker-compose logs --tail=50 app
     goto :eof
 )
 
 if "%1"=="shell" (
     echo Opening shell in container...
     docker-compose exec app /bin/bash
+    goto :eof
+)
+
+if "%1"=="follow" (
+    echo Following logs in real-time (Press Ctrl+C to stop)...
+    docker-compose logs -f app
     goto :eof
 )
 
@@ -51,14 +57,15 @@ if "%1"=="dev" (
 )
 
 REM Default case - show usage
-echo Usage: %0 {build^|start^|stop^|restart^|logs^|shell^|clean^|dev}
+echo Usage: %0 {build^|start^|stop^|restart^|logs^|follow^|shell^|clean^|dev}
 echo.
 echo Commands:
 echo   build   - Build the Docker image
 echo   start   - Start the application in detached mode
 echo   stop    - Stop the application
 echo   restart - Restart the application
-echo   logs    - Show application logs
+echo   logs    - Show recent application logs (last 50 lines)
+echo   follow  - Follow application logs in real-time (Ctrl+C to stop)
 echo   shell   - Open a shell in the running container
 echo   clean   - Remove all Docker containers and images
 echo   dev     - Start in development mode with live logs
