@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Helper scripts
+docker.sh
+docker.bat
+start.bat
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Database files (you might want to include sample data instead)
+*.db
+*.sqlite
+*.sqlite3
+database.db
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Documentation
+README.md
+*.md
+
+# Test files
+test_*
+*_test.py
+tests/
+
+# Logs
+*.log
+logs/
