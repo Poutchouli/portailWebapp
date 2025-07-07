@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY main.py .
+COPY portal_frontend.html .
 
 # Create directory for database (if you want to persist it)
 RUN mkdir -p /app/data

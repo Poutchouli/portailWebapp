@@ -73,9 +73,17 @@ class TokenData(SQLModel):
     username: Optional[str] = None
     scopes: Optional[str] = None  # Will be used for roles/permissions later
 
+# Pydantic Model for Web App Data
+class WebAppData(SQLModel):
+    name: str
+    url: str
+    required_roles: List[str]  # Roles required to access this app
+
 # FastAPI Application
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from passlib.context import CryptContext
 from contextlib import asynccontextmanager
 
@@ -93,6 +101,15 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
 
 app = FastAPI(title="Local Portal Backend", lifespan=lifespan)
+
+# Add CORS middleware to allow frontend requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change this to your frontend URL in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Dependency to get a database session
 def get_session():
@@ -178,6 +195,41 @@ def get_current_active_admin_user(current_user: User = Depends(get_current_user)
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Local Portal Backend!"}
+
+@app.get("/portal", response_class=HTMLResponse)
+def get_portal():
+    """
+    Serves the web portal frontend HTML page.
+    """
+    with open("portal_frontend.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+# --- Web App Listing Endpoint ---
+
+@app.get("/apps/", response_model=List[WebAppData])
+def get_available_apps(current_user: User = Depends(get_current_user)):
+    """
+    Returns a list of web applications available to the current user based on their roles.
+    """
+    user_roles = set(current_user.roles.split(','))
+
+    # Hardcoded list of applications for now
+    all_apps = [
+        WebAppData(name="File Manager", url="http://127.0.0.1:8080", required_roles=["user"]),
+        WebAppData(name="Admin Dashboard", url="http://127.0.0.1:8081", required_roles=["admin"]),
+        WebAppData(name="Project Tracker", url="http://127.0.0.1:8082", required_roles=["user", "project_manager"]),
+        WebAppData(name="Sensitive Tool", url="http://127.0.0.1:8083", required_roles=["admin", "special_access"]),
+    ]
+
+    # Filter apps based on user roles
+    available_apps = []
+    for app in all_apps:
+        # Check if user has at least one of the required roles for the app
+        if any(role in user_roles for role in app.required_roles):
+            available_apps.append(app)
+
+    return available_apps
 
 # --- User Management Endpoints ---
 

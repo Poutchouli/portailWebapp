@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local WebApp Portal</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        #login-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: #e9e9e9; }
+        input[type="text"], input[type="password"] { width: calc(100% - 22px); padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        #app-list { list-style: none; padding: 0; }
+        #app-list li { background-color: #f9f9f9; border: 1px solid #eee; margin-bottom: 10px; padding: 15px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
+        #app-list li a { text-decoration: none; color: #007bff; font-weight: bold; }
+        #app-list li a:hover { text-decoration: underline; }
+        .error { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Local WebApp Portal</h1>
+
+        <div id="login-section">
+            <h2>Login</h2>
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required><br>
+            <button onclick="login()">Login</button>
+            <p id="login-message"></p>
+        </div>
+
+        <div id="portal-section" style="display: none;">
+            <h2>Available WebApps for <span id="current-user"></span></h2>
+            <button onclick="logout()">Logout</button>
+            <ul id="app-list">
+                </ul>
+            <p id="app-message"></p>
+        </div>
+    </div>
+
+    <script>
+        let authToken = null; // Stores the JWT
+        let currentUser = null;
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageDiv = document.getElementById('login-message');
+
+            messageDiv.textContent = ''; // Clear previous messages
+
+            const formData = new URLSearchParams();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            try {
+                const response = await fetch('/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData.toString()
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.access_token;
+                    currentUser = username;
+                    messageDiv.textContent = 'Login successful!';
+                    messageDiv.className = 'success';
+                    document.getElementById('current-user').textContent = currentUser;
+                    showPortal();
+                    fetchApps(); // Fetch apps after successful login
+                } else {
+                    const errorData = await response.json();
+                    messageDiv.textContent = `Login failed: ${errorData.detail || response.statusText}`;
+                    messageDiv.className = 'error';
+                }
+            } catch (error) {
+                messageDiv.textContent = `Network error: ${error.message}`;
+                messageDiv.className = 'error';
+            }
+        }
+
+        function logout() {
+            authToken = null;
+            currentUser = null;
+            document.getElementById('login-section').style.display = 'block';
+            document.getElementById('portal-section').style.display = 'none';
+            document.getElementById('login-message').textContent = 'Logged out.';
+            document.getElementById('login-message').className = 'success';
+            document.getElementById('app-list').innerHTML = ''; // Clear app list
+        }
+
+        function showPortal() {
+            document.getElementById('login-section').style.display = 'none';
+            document.getElementById('portal-section').style.display = 'block';
+        }
+
+        async function fetchApps() {
+            const appList = document.getElementById('app-list');
+            const appMessage = document.getElementById('app-message');
+            appList.innerHTML = ''; // Clear existing list
+            appMessage.textContent = ''; // Clear existing message
+
+            if (!authToken) {
+                appMessage.textContent = 'Not logged in to fetch apps.';
+                appMessage.className = 'error';
+                return;
+            }
+
+            try {
+                const response = await fetch('/apps/', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const apps = await response.json();
+                    if (apps.length === 0) {
+                        appMessage.textContent = 'No web applications available for you.';
+                        appMessage.className = '';
+                        return;
+                    }
+                    apps.forEach(app => {
+                        const listItem = document.createElement('li');
+                        listItem.innerHTML = `
+                            <span>${app.name}</span>
+                            <a href="${app.url}" target="_blank">Launch App</a>
+                        `;
+                        appList.appendChild(listItem);
+                    });
+                } else if (response.status === 401 || response.status === 403) {
+                    appMessage.textContent = `Error fetching apps: ${response.statusText}. You might need to log in again or lack permissions.`;
+                    appMessage.className = 'error';
+                    // Optional: Force logout if token is invalid/expired for /apps/
+                    logout();
+                } else {
+                    const errorData = await response.json();
+                    appMessage.textContent = `Error fetching apps: ${errorData.detail || response.statusText}`;
+                    appMessage.className = 'error';
+                }
+            } catch (error) {
+                appMessage.textContent = `Network error fetching apps: ${error.message}`;
+                appMessage.className = 'error';
+            }
+        }
+    </script>
+</body>
+</html>
