@@ -11,6 +11,57 @@ services:
     environment:
       - DATABASE_FILE=/app/data/database.db
     restart: unless-stopped
+    networks:
+      - portal_network
+    
+  # Database Backup Container
+  backup-db:
+    image: alpine:latest
+    volumes:
+      # Mount the same data directory as the main app
+      - ./data:/source_data
+      # Mount local backups directory to store backup files
+      - ./backups:/destination_backups
+    command: |
+      sh -c "
+        echo 'Starting database backup process...';
+        
+        # Create timestamp for backup file
+        TIMESTAMP=$$(date +%Y%m%d_%H%M%S);
+        
+        # Check if source database exists
+        if [ ! -f /source_data/database.db ]; then
+          echo 'Error: Source database file not found at /source_data/database.db';
+          exit 1;
+        fi;
+        
+        # Create backups directory if it doesn't exist
+        mkdir -p /destination_backups;
+        
+        # Perform the backup using cp
+        echo 'Copying database file...';
+        cp /source_data/database.db /destination_backups/database_backup_$${TIMESTAMP}.db;
+        
+        # Verify backup was created
+        if [ -f /destination_backups/database_backup_$${TIMESTAMP}.db ]; then
+          BACKUP_SIZE=$$(du -h /destination_backups/database_backup_$${TIMESTAMP}.db | cut -f1);
+          echo 'Database backup completed successfully!';
+          echo 'Backup file: database_backup_$${TIMESTAMP}.db';
+          echo 'Backup size: '$${BACKUP_SIZE};
+          echo 'Location: ./backups/database_backup_$${TIMESTAMP}.db';
+        else
+          echo 'Error: Backup file was not created';
+          exit 1;
+        fi;
+        
+        # List all existing backups
+        echo '';
+        echo 'Existing backups:';
+        ls -la /destination_backups/database_backup_*.db 2>/dev/null || echo 'No previous backups found';
+      "
+    restart: 'no'
+    networks:
+      - portal_network
     
   # Optional: Add a reverse proxy for production
   # nginx:
@@ -22,3 +73,7 @@ services:
   #   depends_on:
   #     - app
   #   restart: unless-stopped
+
+networks:
+  portal_network:
+    driver: bridge
