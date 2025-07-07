@@ -3,7 +3,8 @@ import LoginView from '../views/LoginView.vue';
 import AppsView from '../views/AppsView.vue';
 import AdminDashboardView from '../views/AdminDashboardView.vue';
 import UserManagementView from '../views/UserManagementView.vue';
-import WebAppManagementView from '../views/WebAppManagementView.vue'; // NEW IMPORT
+import WebAppManagementView from '../views/WebAppManagementView.vue';
+import RoleManagementView from '../views/RoleManagementView.vue'; // NEW IMPORT
 import store from '../store'; // Import your Vuex store
 
 const routes = [
@@ -29,10 +30,15 @@ const routes = [
         name: 'ManageUsers',
         component: UserManagementView
       },
-      { // NEW CHILD ROUTE
+      {
         path: 'apps',
         name: 'ManageWebApps',
         component: WebAppManagementView
+      },
+      { // NEW CHILD ROUTE
+        path: 'roles',
+        name: 'ManageRoles',
+        component: RoleManagementView
       }
     ]
   },

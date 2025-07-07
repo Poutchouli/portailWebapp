@@ -59,28 +59,45 @@ export default {
     async fetchApps() {
       this.loading = true;
       this.errorMessage = '';
+      
+      console.log("=== FETCH APPS DEBUG ==="); // DEBUG
+      console.log("Current user:", this.user); // DEBUG
+      console.log("User roles:", this.user ? this.user.roles : "No user"); // DEBUG
+      console.log("Is Admin:", this.isAdmin); // DEBUG
+      console.log("Token present:", !!this.token); // DEBUG
+      
       try {
+        console.log("Making request to /apps/ with token..."); // DEBUG
         const response = await fetch('/apps/', {
           headers: {
             'Authorization': `Bearer ${this.token}`
           }
         });
 
+        console.log("Apps API response status:", response.status); // DEBUG
+        
         if (response.ok) {
-          this.apps = await response.json();
+          const appsData = await response.json();
+          console.log("Apps data received:", appsData); // DEBUG
+          console.log("Number of apps:", appsData.length); // DEBUG
+          this.apps = appsData;
         } else {
           const errorData = await response.json();
+          console.error("Apps API error data:", errorData); // DEBUG
           this.errorMessage = `Failed to load apps: ${errorData.detail || response.statusText}`;
           if (response.status === 401 || response.status === 403) {
             // If unauthorized/forbidden, maybe token is stale or user lost permissions
+            console.log("Unauthorized/Forbidden - forcing logout"); // DEBUG
             this.logout(); // Force logout
           }
         }
       } catch (error) {
+        console.error("Fetch apps network error:", error); // DEBUG
         this.errorMessage = `Network error: ${error.message}`;
         console.error("Fetch apps error:", error);
       } finally {
         this.loading = false;
+        console.log("=== FETCH APPS DEBUG END ==="); // DEBUG
       }
     }
   }

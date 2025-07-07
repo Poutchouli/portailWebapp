@@ -9,11 +9,14 @@ const store = createStore({
   
   mutations: {
     SET_USER(state, user) {
+      console.log("SET_USER mutation called with:", user); // DEBUG
+      console.log("User roles in mutation:", user ? user.roles : "No user"); // DEBUG
       state.user = user
       state.isAuthenticated = !!user
     },
     
     SET_TOKEN(state, token) {
+      console.log("SET_TOKEN mutation called with token:", token ? "Token present" : "No token"); // DEBUG
       state.token = token
       if (token) {
         localStorage.setItem('token', token)
@@ -58,18 +61,44 @@ const store = createStore({
         const data = await response.json()
         console.log("Login response data:", data); // DEBUG
         
+        // Debug JWT token parsing
+        if (data.access_token) {
+          console.log("JWT Token received:", data.access_token); // DEBUG
+          
+          // Decode JWT payload (without verification, just for debugging)
+          try {
+            const tokenParts = data.access_token.split('.');
+            console.log("JWT parts count:", tokenParts.length); // DEBUG
+            
+            if (tokenParts.length === 3) {
+              const payload = JSON.parse(atob(tokenParts[1]));
+              console.log("JWT Payload decoded:", payload); // DEBUG
+              console.log("JWT Payload roles:", payload.roles); // DEBUG
+              console.log("JWT Payload sub (user):", payload.sub); // DEBUG
+              console.log("JWT Payload exp:", payload.exp); // DEBUG
+            }
+          } catch (jwtError) {
+            console.error("Failed to decode JWT:", jwtError); // DEBUG
+          }
+        }
+        
         // Store the token
         commit('SET_TOKEN', data.access_token)
         
         // Fetch user info
+        console.log("Fetching user info..."); // DEBUG
         const userResponse = await fetch('/users/me', {
           headers: {
             'Authorization': `Bearer ${data.access_token}`
           }
         })
         
+        console.log("User info response status:", userResponse.status); // DEBUG
+        
         if (userResponse.ok) {
           const userData = await userResponse.json()
+          console.log("User data received:", userData); // DEBUG
+          console.log("User roles from API:", userData.roles); // DEBUG
           commit('SET_USER', userData)
         }
         
@@ -112,7 +141,13 @@ const store = createStore({
     isAuthenticated: state => state.isAuthenticated,
     user: state => state.user,
     token: state => state.token,
-    isAdmin: state => state.user && state.user.roles && state.user.roles.includes('admin')
+    isAdmin: state => {
+      const result = state.user && state.user.roles && state.user.roles.includes('admin');
+      console.log("isAdmin getter called - user:", state.user); // DEBUG
+      console.log("isAdmin getter called - roles:", state.user ? state.user.roles : "No user"); // DEBUG
+      console.log("isAdmin getter result:", result); // DEBUG
+      return result;
+    }
   }
 })
 

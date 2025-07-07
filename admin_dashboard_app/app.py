@@ -32,7 +32,7 @@ def home():
             <p>Here you can manage users, configure system settings, and access administrative tools.</p>
             <p>Only users with the <strong>admin</strong> role can access this application.</p>
             <hr>
-            <p>You can go back to the <a href="http://localhost:8000/portal">Portal</a>.</p>
+            <p>You can go back to the <a href="http://localhost:8000/app">Apps</a>.</p>
         </div>
     </body>
     </html>

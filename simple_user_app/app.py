@@ -26,7 +26,7 @@ def home():
             <p>This is content visible to general users with the <strong>user</strong> role.</p>
             <p>Here you could manage your files, view documents, and perform user-level operations.</p>
             <hr>
-            <p>You can go back to the <a href="http://localhost:8000/portal">Portal</a>.</p>
+            <p>You can go back to the <a href="http://localhost:8000/app">Apps</a>.</p>
         </div>
     </body>
     </html>

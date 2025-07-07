@@ -6,6 +6,14 @@ from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from pydantic import field_validator
+from fastapi import Request # IMPORT ADDED
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from passlib.context import CryptContext
+from contextlib import asynccontextmanager
 
 # Database setup
 DATABASE_FILE = os.getenv("DATABASE_FILE", "database.db")
@@ -167,15 +175,6 @@ class TokenData(SQLModel):
     username: Optional[str] = None
     scopes: Optional[str] = None  # Will be used for roles/permissions later
 
-# FastAPI Application
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from passlib.context import CryptContext
-from contextlib import asynccontextmanager
-
 # Lifespan event handler for FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -189,16 +188,10 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown (if needed)
 
+# FastAPI Application
 app = FastAPI(title="Local Portal Backend", lifespan=lifespan)
 
-# Mount static files for Vue.js build
-app.mount("/static", StaticFiles(directory="portal-frontend-vue/dist"), name="static")
-
-# Mount Vue.js static assets
-app.mount("/css", StaticFiles(directory="portal-frontend-vue/dist/css"), name="css")
-app.mount("/js", StaticFiles(directory="portal-frontend-vue/dist/js"), name="js")
-
-# Add CORS middleware to allow frontend requests
+# CORS Middleware (allowing frontend to communicate with backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Change this to your frontend URL in production
@@ -212,8 +205,14 @@ def get_session():
     with Session(engine) as session:
         yield session
 
-# Password hashing context
+# Password hashing utility
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# OAuth2 Password Bearer for token-based authentication
+# This tells FastAPI where to look for the token (in the Authorization header)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# --- Utility Functions ---
 
 # Helper functions for password hashing/verification
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -223,16 +222,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Hashes a plain password."""
     return pwd_context.hash(password)
-
-# OAuth2PasswordBearer will be used for dependency injection to extract token from header
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# Authentication and Authorization Functions
-def get_user_by_username(username: str, session: Session) -> Optional[User]:
-    """
-    Retrieves a user from the database by their username.
-    """
-    return session.exec(select(User).where(User.username == username)).first()
 
 def decode_access_token(token: str) -> Optional[TokenData]:
     """
@@ -268,6 +257,8 @@ def get_or_create_roles(session: Session, role_names: List[str]) -> List[Role]:
         roles.append(role)
     return roles
 
+# --- Authentication & User Dependencies ---
+
 async def get_current_user(
     session: Session = Depends(get_session),
     token: str = Depends(oauth2_scheme)
@@ -297,30 +288,25 @@ async def get_current_user(
 
     return user
 
-def get_current_active_admin_user(current_user: User = Depends(get_current_user)) -> User:
+# NEW: Dependency to get the current user and check if they are an admin
+def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """
-    Dependency to get the current authenticated user and check if they have 'admin' role.
+    Dependency that checks if the current user has the 'admin' role.
+    Raises an HTTPException if the user is not an admin.
     """
     user_role_names = [role.name for role in current_user.roles]
     if "admin" not in user_role_names:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            detail="Operation not permitted: Requires admin privileges",
         )
     return current_user
 
 # API Endpoints
 @app.get("/", include_in_schema=False)
-def serve_portal():
+async def serve_vue_app_root():
     """
     Serves the Vue.js SPA index.html as the root endpoint.
-    """
-    return FileResponse("portal-frontend-vue/dist/index.html")
-
-@app.get("/portal", response_class=HTMLResponse)
-def get_portal():
-    """
-    Alternative endpoint to serve the Vue.js SPA.
     """
     return FileResponse("portal-frontend-vue/dist/index.html")
 
@@ -338,23 +324,39 @@ async def get_available_apps(current_user: User = Depends(get_current_user), ses
     # Fetch all web apps from the database
     all_apps_from_db = session.exec(select(WebApp)).all()
 
-    # Filter apps based on user roles
+    # Filter apps based on user roles and convert to response objects
     available_apps = []
     for app in all_apps_from_db: # Iterate through database apps
         app_required_role_names = {role.name for role in app.required_by_roles} # Get set of required role names
         # Check if user has at least one of the required roles for the app
         if user_role_names.intersection(app_required_role_names):
-            available_apps.append(app)
+            # Convert to WebAppResponse object
+            app_response = WebAppResponse(
+                id=app.id,
+                name=app.name,
+                url=app.url,
+                description=app.description,
+                required_roles=list(app_required_role_names)
+            )
+            available_apps.append(app_response)
 
     return available_apps
 
 # --- User Management Endpoints ---
 
+# NEW: Endpoint to get the currently authenticated user's info
+@app.get("/users/me", response_model=UserResponse)
+async def read_users_me(current_user: User = Depends(get_current_user)):
+    """
+    Returns the details of the currently authenticated user.
+    """
+    return current_user
+
 @app.post("/users/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user: UserCreate, 
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Registers a new user in the system with specific roles. (Admin only)
@@ -397,7 +399,7 @@ async def read_users(
     offset: int = 0, 
     limit: int = 100, 
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Retrieves a list of all users with pagination and their associated roles. (Admin only)
@@ -411,7 +413,7 @@ async def read_users(
 async def read_user(
     user_id: int, 
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Retrieves a single user by their ID with their associated roles. (Admin only)
@@ -426,7 +428,7 @@ async def update_user(
     user_id: int,
     user_update: UserUpdate,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Updates an existing user's information, including roles. (Admin only)
@@ -476,7 +478,7 @@ async def update_user(
 def delete_user(
     user_id: int, 
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Deletes a user by their ID. (Admin only)
@@ -495,7 +497,7 @@ def delete_user(
 async def create_webapp(
     webapp: WebAppCreate,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Creates a new web application entry in the database with required roles. (Admin only)
@@ -537,7 +539,7 @@ async def create_webapp(
 async def read_webapp_by_id(
     webapp_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Retrieves a single web application by its ID with its required roles. (Admin only)
@@ -555,7 +557,7 @@ async def update_webapp(
     webapp_id: int,
     webapp_update: WebAppUpdate,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Updates an existing web application's information, including required roles. (Admin only)
@@ -605,7 +607,7 @@ async def update_webapp(
 def delete_webapp(
     webapp_id: int,
     session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_active_admin_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     """
     Deletes a web application from the database. (Admin only)
@@ -662,13 +664,136 @@ async def login_for_access_token(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Catch-all route for Vue.js SPA history mode (must be last)
-@app.get("/{path:path}", include_in_schema=False)
-def catch_all(path: str):
+# --- Role Management Endpoints ---
+
+class RoleCreate(SQLModel):
+    """Schema for creating a new role."""
+    name: str = Field(min_length=1, max_length=50)
+    description: Optional[str] = Field(default=None, max_length=200)
+
+class RoleUpdate(SQLModel):
+    """Schema for updating an existing role."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    description: Optional[str] = Field(default=None, max_length=200)
+
+class RoleResponse(SQLModel):
+    """Schema for role responses."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    
+    model_config = {"from_attributes": True}
+
+@app.get("/roles/", response_model=List[RoleResponse], dependencies=[Depends(get_current_admin_user)])
+def get_all_roles(session: Session = Depends(get_session)):
     """
-    Catch-all route to serve the Vue.js SPA for any path not handled by API routes.
-    This enables Vue Router history mode.
+    Retrieves all roles in the system. (Admin only)
     """
+    roles = session.exec(select(Role)).all()
+    return roles
+
+@app.post("/roles/", response_model=RoleResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(get_current_admin_user)])
+def create_new_role(role_create: RoleCreate, session: Session = Depends(get_session)):
+    """
+    Creates a new role. (Admin only)
+    """
+    # Check if role name already exists
+    existing_role = session.exec(select(Role).where(Role.name == role_create.name)).first()
+    if existing_role:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Role name already exists"
+        )
+    
+    db_role = Role(name=role_create.name, description=role_create.description)
+    session.add(db_role)
+    session.commit()
+    session.refresh(db_role)
+    return db_role
+
+@app.put("/roles/{role_id}", response_model=RoleResponse, dependencies=[Depends(get_current_admin_user)])
+def update_existing_role(role_id: int, role_update: RoleUpdate, session: Session = Depends(get_session)):
+    """
+    Updates an existing role. (Admin only)
+    """
+    db_role = session.get(Role, role_id)
+    if not db_role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
+    
+    # Check for name conflict if name is being updated
+    update_data = role_update.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] != db_role.name:
+        existing_role = session.exec(select(Role).where(Role.name == update_data["name"])).first()
+        if existing_role and existing_role.id != db_role.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Role name already exists"
+            )
+    
+    # Apply updates
+    for key, value in update_data.items():
+        setattr(db_role, key, value)
+    
+    session.commit()
+    session.refresh(db_role)
+    return db_role
+
+@app.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(get_current_admin_user)])
+def delete_existing_role(role_id: int, session: Session = Depends(get_session)):
+    """
+    Deletes a role. (Admin only)
+    Note: This will also remove the role from any users/apps that reference it.
+    """
+    db_role = session.get(Role, role_id)
+    if not db_role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found"
+        )
+    
+    # Optional: Check if role is in use and prevent deletion
+    # You can add business logic here to prevent deletion of essential roles
+    # or roles that are currently assigned to users/apps
+    
+    session.delete(db_role)
+    session.commit()
+    return
+
+
+# --- Root and Catch-all Routes for Vue.js SPA ---
+# IMPORTANT: These routes must be defined *after* all your API routes.
+
+# --- Root and Catch-all Routes for Vue.js SPA ---
+# IMPORTANT: These routes must be defined *after* all your API routes.
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_vue_spa_catchall(full_path: str):
+    """
+    Serves the Vue.js SPA for any unmatched path.
+    Excludes explicit API paths and serves static assets or index.html.
+    """
+    # Define API/Backend-specific prefixes that should NOT be handled by the SPA
+    api_prefixes = ["token", "users", "apps", "roles", "docs", "openapi.json"]
+
+    # Check if the requested path starts with any API prefix
+    for prefix in api_prefixes:
+        if full_path.startswith(prefix):
+            raise HTTPException(status_code=404, detail=f"API path '{full_path}' not found or excluded from SPA routing.")
+
+    # --- Attempt to serve a direct static file (JS, CSS, images, favicon etc.) ---
+    # Construct the full path to the file *within the dist directory*
+    file_path_in_dist = os.path.join("portal-frontend-vue/dist", full_path)
+
+    # Check if the file actually exists and is a file
+    if os.path.exists(file_path_in_dist) and os.path.isfile(file_path_in_dist):
+        return FileResponse(file_path_in_dist)
+
+    # --- Fallback to serving index.html for Vue Router ---
+    # If no API path and no direct static file match, then it's a client-side route
+    # (e.g., /apps, /admin/users). Serve index.html for Vue Router to handle.
     return FileResponse("portal-frontend-vue/dist/index.html")
 
 # You can run this file to create the database and tables initially
