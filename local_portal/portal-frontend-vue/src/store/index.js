@@ -39,17 +39,24 @@ const store = createStore({
         formData.append('username', credentials.username)
         formData.append('password', credentials.password)
         
+        console.log("Attempting login for:", credentials.username); // DEBUG
+        console.log("Sending form data:", formData); // DEBUG
+        
         const response = await fetch('/token', {
           method: 'POST',
           body: formData
         })
         
+        console.log("Login response status:", response.status); // DEBUG
+        
         if (!response.ok) {
           const errorData = await response.json()
+          console.error("Login API Error Data:", errorData); // DEBUG
           throw new Error(errorData.detail || 'Login failed')
         }
         
         const data = await response.json()
+        console.log("Login response data:", data); // DEBUG
         
         // Store the token
         commit('SET_TOKEN', data.access_token)
@@ -68,6 +75,7 @@ const store = createStore({
         
         return { success: true }
       } catch (error) {
+        console.error("Login action caught error:", error.message); // DEBUG
         commit('LOGOUT')
         return { success: false, error: error.message }
       }

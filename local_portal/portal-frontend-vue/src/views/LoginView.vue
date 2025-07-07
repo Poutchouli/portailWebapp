@@ -32,16 +32,23 @@ export default {
   methods: {
     ...mapActions(['login']), // Map the login action from Vuex
     async handleLogin() {
-      try {
-        this.message = ''; // Clear previous messages
-        await this.login({ username: this.username, password: this.password });
+      this.message = ''; // Clear previous messages
+      
+      console.log("LoginView: Starting login process"); // DEBUG
+      
+      const result = await this.login({ username: this.username, password: this.password });
+      
+      console.log("LoginView: Login result:", result); // DEBUG
+      
+      if (result.success) {
+        console.log("LoginView: Login successful, redirecting"); // DEBUG
         this.message = 'Login successful!';
         this.isSuccess = true;
         this.$router.push('/apps'); // Redirect to /apps on success
-      } catch (error) {
-        this.message = error.message || 'An unexpected error occurred.';
+      } else {
+        console.error("LoginView: Login failed:", result.error); // DEBUG
+        this.message = result.error || 'An unexpected error occurred.';
         this.isSuccess = false;
-        console.error("Login error:", error);
       }
     }
   }

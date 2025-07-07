@@ -10,11 +10,10 @@
         <span class="nav-icon">👥</span>
         Manage Users
       </router-link>
-      <!-- Future link for app management -->
-      <!-- <router-link to="/admin/apps" class="nav-link">
+      <router-link to="/admin/apps" class="nav-link">
         <span class="nav-icon">📱</span>
         Manage Web Apps
-      </router-link> -->
+      </router-link>
     </nav>
 
     <div class="admin-content">
