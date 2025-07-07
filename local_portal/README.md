@@ -1,16 +1,67 @@
 # Local Portal Backend
 
-A FastAPI-based local portal backend with SQLModel for database operations and user management.
+A FastAPI-based user management system with SQLite database.
 
 ## Features
 
-- FastAPI web framework
-- SQLModel for database modeling (SQLite)
-- User management with password hashing
-- Role-based access control
-- Automatic API documentation
+- User creation, reading, updating, and deletion
+- Password hashing with bcrypt
+- SQLite database with SQLModel ORM
+- FastAPI with automatic API documentation
+- Docker containerization for easy deployment
 
-## Setup
+## Quick Start with Docker
+
+### Prerequisites
+- Docker
+- Docker Compose
+
+### For Windows Users
+- **Easy Start**: Double-click `start.bat`
+- **See**: `WINDOWS_SETUP.md` for detailed Windows instructions
+
+### For Linux/Mac Users
+- **Easy Start**: Run `./docker.sh dev`
+- **See**: `DOCKER_SETUP.md` for detailed setup instructions
+
+### Running the Application
+
+1. **Clone and navigate to the project:**
+   ```bash
+   git clone <your-repo-url>
+   cd local_portal
+   ```
+
+2. **Start the application:**
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Access the application:**
+   - API: http://localhost:8000
+   - Interactive API docs: http://localhost:8000/docs
+   - Alternative API docs: http://localhost:8000/redoc
+
+4. **Stop the application:**
+   ```bash
+   docker-compose down
+   ```
+
+### Development Mode
+
+**Linux/Mac:**
+```bash
+./docker.sh dev
+```
+
+**Windows:**
+```cmd
+docker.bat dev
+```
+
+The `main.py` file is mounted as a volume, so changes will trigger auto-reload.
+
+## Legacy Setup (Virtual Environment)
 
 1. Create a virtual environment:
 ```bash
@@ -48,6 +99,34 @@ uvicorn main:app --reload
 - **Unique Constraints**: Usernames must be unique
 - **Error Handling**: Proper HTTP status codes and error messages
 - **Pagination**: Configurable limits for user listings
+- **Docker Support**: Easy deployment with Docker and Docker Compose
+
+### Example Usage
+
+Create a user:
+```bash
+curl -X POST "http://localhost:8000/users/" \
+     -H "Content-Type: application/json" \
+     -d '{"username": "testuser", "password": "password123", "roles": "user"}'
+```
+
+## Database
+
+The SQLite database is stored in the `./data/` directory and persisted between container restarts.
+
+## Environment Variables
+
+- `DATABASE_FILE`: Path to the SQLite database file (default: `database.db`)
+
+## Production Deployment
+
+For production, you may want to:
+
+1. Remove the volume mount for `main.py` in `docker-compose.yml`
+2. Use a proper reverse proxy (nginx configuration provided as example)
+3. Set up proper environment variables
+4. Use a more robust database (PostgreSQL, MySQL)
+5. Implement proper authentication and authorization
 
 ## Database
 
