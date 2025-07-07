@@ -191,8 +191,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Local Portal Backend", lifespan=lifespan)
 
-# Mount static files (our HTML portal)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files for Vue.js build
+app.mount("/static", StaticFiles(directory="portal-frontend-vue/dist"), name="static")
+
+# Mount Vue.js static assets
+app.mount("/css", StaticFiles(directory="portal-frontend-vue/dist/css"), name="css")
+app.mount("/js", StaticFiles(directory="portal-frontend-vue/dist/js"), name="js")
 
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
@@ -309,18 +313,16 @@ def get_current_active_admin_user(current_user: User = Depends(get_current_user)
 @app.get("/", include_in_schema=False)
 def serve_portal():
     """
-    Serves the web portal frontend HTML page as the root endpoint.
+    Serves the Vue.js SPA index.html as the root endpoint.
     """
-    return FileResponse("static/portal_frontend.html")
+    return FileResponse("portal-frontend-vue/dist/index.html")
 
 @app.get("/portal", response_class=HTMLResponse)
 def get_portal():
     """
-    Alternative endpoint to serve the web portal frontend HTML page.
+    Alternative endpoint to serve the Vue.js SPA.
     """
-    with open("static/portal_frontend.html", "r", encoding="utf-8") as f:
-        html_content = f.read()
-    return HTMLResponse(content=html_content)
+    return FileResponse("portal-frontend-vue/dist/index.html")
 
 # --- Web App Listing Endpoint ---
 
@@ -659,6 +661,15 @@ async def login_for_access_token(
         expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+# Catch-all route for Vue.js SPA history mode (must be last)
+@app.get("/{path:path}", include_in_schema=False)
+def catch_all(path: str):
+    """
+    Catch-all route to serve the Vue.js SPA for any path not handled by API routes.
+    This enables Vue Router history mode.
+    """
+    return FileResponse("portal-frontend-vue/dist/index.html")
 
 # You can run this file to create the database and tables initially
 # or it will be done automatically on app startup.

@@ -27,6 +27,9 @@ COPY main.py .
 COPY init_users.py .
 COPY static/ ./static/
 
+# Copy the Vue.js frontend build (dist directory)
+COPY portal-frontend-vue/dist/ ./portal-frontend-vue/dist/
+
 # Create directory for database (if you want to persist it)
 RUN mkdir -p /app/data
 
