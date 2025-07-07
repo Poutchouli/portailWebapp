@@ -2,6 +2,7 @@
 import os
 from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, SQLModel, create_engine, Session, select, Relationship
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from pydantic import field_validator
@@ -245,12 +246,31 @@ def decode_access_token(token: str) -> Optional[TokenData]:
         return None  # Invalid token
     return token_data
 
+def get_or_create_roles(session: Session, role_names: List[str]) -> List[Role]:
+    """
+    Retrieves Role objects for given names, creating them if they don't exist.
+    """
+    roles = []
+    for role_name in role_names:
+        role = session.exec(select(Role).where(Role.name == role_name)).first()
+        if not role:
+            # This should ideally not happen for predefined roles,
+            # but allows dynamic role creation if desired.
+            role = Role(name=role_name)
+            session.add(role)
+            session.commit()
+            session.refresh(role)
+            print(f"Created new role: {role_name}")
+        roles.append(role)
+    return roles
+
 async def get_current_user(
     session: Session = Depends(get_session),
     token: str = Depends(oauth2_scheme)
 ) -> User:
     """
-    Dependency to get the current authenticated user from the JWT token.
+    Dependency to get the current authenticated user from the JWT token,
+    eagerly loading their roles from the database.
     Raises HTTPException if authentication fails.
     """
     credentials_exception = HTTPException(
@@ -265,7 +285,9 @@ async def get_current_user(
     # Optionally, verify the user still exists in the database
     if token_data.username is None:
         raise credentials_exception
-    user = get_user_by_username(token_data.username, session)
+    
+    # Now eager load roles when fetching user
+    user = session.exec(select(User).where(User.username == token_data.username)).first()
     if user is None:
         raise credentials_exception
 
@@ -303,12 +325,13 @@ def get_portal():
 # --- Web App Listing Endpoint ---
 
 @app.get("/apps/", response_model=List[WebAppResponse]) # Changed response_model to WebAppResponse
-def get_available_apps(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)): # Added session dependency
+async def get_available_apps(current_user: User = Depends(get_current_user), session: Session = Depends(get_session)): # Added session dependency
     """
     Returns a list of web applications available to the current user based on their roles.
-    Now fetches apps from the database.
+    Now fetches apps from the database with linked roles.
     """
-    user_role_names = set([role.name for role in current_user.roles])
+    # Get the names of roles the current user has
+    user_role_names = {role.name for role in current_user.roles} # Get set of names
 
     # Fetch all web apps from the database
     all_apps_from_db = session.exec(select(WebApp)).all()
@@ -316,9 +339,9 @@ def get_available_apps(current_user: User = Depends(get_current_user), session: 
     # Filter apps based on user roles
     available_apps = []
     for app in all_apps_from_db: # Iterate through database apps
-        app_role_names = set([role.name for role in app.required_by_roles])
+        app_required_role_names = {role.name for role in app.required_by_roles} # Get set of required role names
         # Check if user has at least one of the required roles for the app
-        if user_role_names.intersection(app_role_names):
+        if user_role_names.intersection(app_required_role_names):
             available_apps.append(app)
 
     return available_apps
@@ -326,13 +349,13 @@ def get_available_apps(current_user: User = Depends(get_current_user), session: 
 # --- User Management Endpoints ---
 
 @app.post("/users/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(
+async def create_user(
     user: UserCreate, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Registers a new user in the system. (Admin only)
+    Registers a new user in the system with specific roles. (Admin only)
     """
     # Check if username already exists
     db_user = session.exec(select(User).where(User.username == user.username)).first()
@@ -351,16 +374,10 @@ def create_user(
     session.commit()
     session.refresh(db_user) # Refresh to get the auto-generated ID
 
-    # Handle roles: find or create Role objects and link them to the user
+    # Resolve and assign roles
     if user.roles:
-        for role_name in user.roles:
-            role = session.exec(select(Role).where(Role.name == role_name)).first()
-            if not role:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Role '{role_name}' does not exist"
-                )
-            # Add role to user's roles
+        roles_to_assign = get_or_create_roles(session, user.roles)
+        for role in roles_to_assign:
             db_user.roles.append(role)
     else:
         # Default to 'user' role if no roles specified
@@ -374,14 +391,14 @@ def create_user(
     return db_user
 
 @app.get("/users/", response_model=List[UserResponse])
-def read_users(
+async def read_users(
     offset: int = 0, 
     limit: int = 100, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Retrieves a list of all users with pagination. (Admin only)
+    Retrieves a list of all users with pagination and their associated roles. (Admin only)
     """
     # Ensure limit doesn't exceed 100
     limit = min(limit, 100)
@@ -389,13 +406,13 @@ def read_users(
     return users
 
 @app.get("/users/{user_id}", response_model=UserResponse)
-def read_user(
+async def read_user(
     user_id: int, 
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Retrieves a single user by their ID. (Admin only)
+    Retrieves a single user by their ID with their associated roles. (Admin only)
     """
     user = session.get(User, user_id)
     if not user:
@@ -403,14 +420,14 @@ def read_user(
     return user
 
 @app.patch("/users/{user_id}", response_model=UserResponse)
-def update_user(
+async def update_user(
     user_id: int,
     user_update: UserUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Updates an existing user's information. (Admin only)
+    Updates an existing user's information, including roles. (Admin only)
     Allows partial updates (e.g., just username, or just password, or just roles).
     """
     db_user = session.get(User, user_id)
@@ -444,13 +461,8 @@ def update_user(
         
         # Add new roles
         if update_data["roles"]:
-            for role_name in update_data["roles"]:
-                role = session.exec(select(Role).where(Role.name == role_name)).first()
-                if not role:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Role '{role_name}' does not exist"
-                    )
+            roles_to_assign = get_or_create_roles(session, update_data["roles"])
+            for role in roles_to_assign:
                 db_user.roles.append(role)
 
     session.commit()
@@ -478,13 +490,13 @@ def delete_user(
 # NEW: WebApp CRUD Endpoints (Admin Only)
 
 @app.post("/apps/", response_model=WebAppResponse, status_code=status.HTTP_201_CREATED)
-def create_webapp(
+async def create_webapp(
     webapp: WebAppCreate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Creates a new web application entry in the database. (Admin only)
+    Creates a new web application entry in the database with required roles. (Admin only)
     """
     db_webapp = session.exec(select(WebApp).where(WebApp.name == webapp.name)).first()
     if db_webapp:
@@ -503,16 +515,10 @@ def create_webapp(
     session.commit()
     session.refresh(db_webapp) # Refresh to get the auto-generated ID
 
-    # Handle required_roles: find Role objects and link them to the webapp
+    # Resolve and assign required roles
     if webapp.required_roles:
-        for role_name in webapp.required_roles:
-            role = session.exec(select(Role).where(Role.name == role_name)).first()
-            if not role:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Role '{role_name}' does not exist"
-                )
-            # Add role to webapp's required roles
+        roles_to_assign = get_or_create_roles(session, webapp.required_roles)
+        for role in roles_to_assign:
             db_webapp.required_by_roles.append(role)
     else:
         # Default to 'user' role if no roles specified
@@ -526,13 +532,13 @@ def create_webapp(
     return db_webapp
 
 @app.get("/apps/{webapp_id}", response_model=WebAppResponse)
-def read_webapp_by_id(
+async def read_webapp_by_id(
     webapp_id: int,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Retrieves a single web application by its ID. (Admin only)
+    Retrieves a single web application by its ID with its required roles. (Admin only)
     """
     webapp = session.get(WebApp, webapp_id)
     if not webapp:
@@ -543,14 +549,14 @@ def read_webapp_by_id(
     return webapp
 
 @app.patch("/apps/{webapp_id}", response_model=WebAppResponse)
-def update_webapp(
+async def update_webapp(
     webapp_id: int,
     webapp_update: WebAppUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Updates an existing web application's information. (Admin only)
+    Updates an existing web application's information, including required roles. (Admin only)
     Allows partial updates.
     """
     db_webapp = session.get(WebApp, webapp_id)
@@ -585,13 +591,8 @@ def update_webapp(
         
         # Add new roles
         if update_data["required_roles"]:
-            for role_name in update_data["required_roles"]:
-                role = session.exec(select(Role).where(Role.name == role_name)).first()
-                if not role:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Role '{role_name}' does not exist"
-                    )
+            roles_to_assign = get_or_create_roles(session, update_data["required_roles"])
+            for role in roles_to_assign:
                 db_webapp.required_by_roles.append(role)
 
     session.commit()
@@ -633,14 +634,16 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 @app.post("/token", response_model=Token)
-def login_for_access_token(
+async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session)
 ):
     """
     Authenticates a user and returns an access token upon successful login.
+    Now includes user's roles from database relationship in JWT.
     """
-    user = get_user_by_username(form_data.username, session)
+    # Fetch user with roles eager loaded
+    user = session.exec(select(User).where(User.username == form_data.username)).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
