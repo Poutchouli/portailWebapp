@@ -114,6 +114,66 @@ def get_password_hash(password: str) -> str:
 # OAuth2PasswordBearer will be used for dependency injection to extract token from header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+# Authentication and Authorization Functions
+def get_user_by_username(username: str, session: Session) -> Optional[User]:
+    """
+    Retrieves a user from the database by their username.
+    """
+    return session.exec(select(User).where(User.username == username)).first()
+
+def decode_access_token(token: str) -> Optional[TokenData]:
+    """
+    Decodes and validates a JWT access token.
+    Returns TokenData if valid, None otherwise.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: Optional[str] = payload.get("sub")
+        roles: Optional[str] = payload.get("roles")  # Get roles from token
+        if username is None:
+            return None  # No subject in token
+        token_data = TokenData(username=username, scopes=roles)
+    except JWTError:
+        return None  # Invalid token
+    return token_data
+
+async def get_current_user(
+    session: Session = Depends(get_session),
+    token: str = Depends(oauth2_scheme)
+) -> User:
+    """
+    Dependency to get the current authenticated user from the JWT token.
+    Raises HTTPException if authentication fails.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    token_data = decode_access_token(token)
+    if token_data is None:
+        raise credentials_exception
+
+    # Optionally, verify the user still exists in the database
+    if token_data.username is None:
+        raise credentials_exception
+    user = get_user_by_username(token_data.username, session)
+    if user is None:
+        raise credentials_exception
+
+    return user
+
+def get_current_active_admin_user(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency to get the current authenticated user and check if they have 'admin' role.
+    """
+    if "admin" not in current_user.roles.split(','):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    return current_user
+
 # API Endpoints
 @app.get("/")
 def read_root():
@@ -122,9 +182,13 @@ def read_root():
 # --- User Management Endpoints ---
 
 @app.post("/users/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def create_user(user: UserCreate, session: Session = Depends(get_session)):
+def create_user(
+    user: UserCreate, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
     """
-    Registers a new user in the system.
+    Registers a new user in the system. (Admin only)
     """
     # Check if username already exists
     db_user = session.exec(select(User).where(User.username == user.username)).first()
@@ -148,10 +212,14 @@ def create_user(user: UserCreate, session: Session = Depends(get_session)):
     return db_user
 
 @app.get("/users/", response_model=List[UserResponse])
-def read_users(offset: int = 0, limit: int = 100, session: Session = Depends(get_session)):
+def read_users(
+    offset: int = 0, 
+    limit: int = 100, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
     """
-    Retrieves a list of all users with pagination.
-    (Admin access will be implemented later)
+    Retrieves a list of all users with pagination. (Admin only)
     """
     # Ensure limit doesn't exceed 100
     limit = min(limit, 100)
@@ -159,9 +227,13 @@ def read_users(offset: int = 0, limit: int = 100, session: Session = Depends(get
     return users
 
 @app.get("/users/{user_id}", response_model=UserResponse)
-def read_user(user_id: int, session: Session = Depends(get_session)):
+def read_user(
+    user_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
     """
-    Retrieves a single user by their ID.
+    Retrieves a single user by their ID. (Admin only)
     """
     user = session.get(User, user_id)
     if not user:
@@ -172,10 +244,11 @@ def read_user(user_id: int, session: Session = Depends(get_session)):
 def update_user(
     user_id: int,
     user_update: UserUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
 ):
     """
-    Updates an existing user's information.
+    Updates an existing user's information. (Admin only)
     Allows partial updates (e.g., just username, or just password, or just roles).
     """
     db_user = session.get(User, user_id)
@@ -213,9 +286,13 @@ def update_user(
     return db_user
 
 @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, session: Session = Depends(get_session)):
+def delete_user(
+    user_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_active_admin_user)
+):
     """
-    Deletes a user by their ID.
+    Deletes a user by their ID. (Admin only)
     """
     user = session.get(User, user_id)
     if not user:
@@ -238,13 +315,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
-# Function to get user by username (useful for login)
-def get_user_by_username(username: str, session: Session) -> Optional[User]:
-    """
-    Retrieves a user from the database by their username.
-    """
-    return session.exec(select(User).where(User.username == username)).first()
 
 @app.post("/token", response_model=Token)
 def login_for_access_token(
