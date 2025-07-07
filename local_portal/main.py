@@ -2,6 +2,8 @@
 import os
 from typing import Optional, List
 from sqlmodel import Field, SQLModel, create_engine, Session, select
+from datetime import datetime, timedelta, timezone
+from jose import JWTError, jwt
 
 # Database setup
 DATABASE_FILE = os.getenv("DATABASE_FILE", "database.db")
@@ -56,6 +58,21 @@ class UserResponse(SQLModel):
     username: str
     roles: str
 
+# JWT Configuration
+SECRET_KEY = "your-secret-key-change-this-in-production-use-secrets-token-urlsafe-32"  # IMPORTANT: CHANGE THIS IN PRODUCTION!
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # How long the token is valid for
+
+# Pydantic Model for JWT Token response
+class Token(SQLModel):
+    access_token: str
+    token_type: str
+
+# Pydantic Model for data stored in the JWT token (payload)
+class TokenData(SQLModel):
+    username: Optional[str] = None
+    scopes: Optional[str] = None  # Will be used for roles/permissions later
+
 # FastAPI Application
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -93,6 +110,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     """Hashes a plain password."""
     return pwd_context.hash(password)
+
+# OAuth2PasswordBearer will be used for dependency injection to extract token from header
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # API Endpoints
 @app.get("/")
@@ -204,6 +224,49 @@ def delete_user(user_id: int, session: Session = Depends(get_session)):
     session.delete(user)
     session.commit()
     return {} # No content response for successful deletion
+
+# JWT Utility Functions
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Creates a new JWT access token.
+    """
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Function to get user by username (useful for login)
+def get_user_by_username(username: str, session: Session) -> Optional[User]:
+    """
+    Retrieves a user from the database by their username.
+    """
+    return session.exec(select(User).where(User.username == username)).first()
+
+@app.post("/token", response_model=Token)
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: Session = Depends(get_session)
+):
+    """
+    Authenticates a user and returns an access token upon successful login.
+    """
+    user = get_user_by_username(form_data.username, session)
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "roles": user.roles},  # Store username and roles in token
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 # You can run this file to create the database and tables initially
 # or it will be done automatically on app startup.
