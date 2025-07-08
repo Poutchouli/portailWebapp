@@ -59,6 +59,52 @@ Key functionalities include:
 * **Modern Frontend:** Interactive Single-Page Application (SPA) built with Vue.js.
 * **Cross-Platform Support:** Works on Windows, Linux, and macOS.
 
+## Project Architecture
+
+### Frontend-Backend Integration
+
+The portal uses a **Single-Page Application (SPA)** architecture where:
+
+1. **Vue.js Frontend:** Built into static files (`dist/` directory) containing:
+   - `index.html` - Main SPA entry point
+   - `js/` - Compiled JavaScript bundles
+   - `css/` - Compiled CSS styles  
+   - `favicon.ico` - Site icon
+
+2. **FastAPI Backend:** Serves both API endpoints and static files:
+   - **API Routes:** `/users/*`, `/apps/*`, `/token`, `/docs` - handled by FastAPI
+   - **Static Assets:** `/js/*`, `/css/*`, `/favicon.ico` - served directly from `dist/`
+   - **SPA Routing:** All other routes serve `index.html` for Vue Router client-side routing
+
+3. **Static File Serving Logic** (in `main.py`):
+   ```python
+   # Root route serves index.html
+   @app.get("/")
+   async def read_root():
+       return FileResponse(os.path.join(static_dir, "index.html"))
+   
+   # Catch-all route for SPA and static files
+   @app.get("/{full_path:path}")
+   async def catch_all(full_path: str):
+       # API routes return 404
+       if full_path.startswith(("users", "apps", "token", "docs")):
+           raise HTTPException(status_code=404)
+       
+       # Serve static files if they exist
+       file_path = os.path.join(static_dir, full_path)
+       if os.path.isfile(file_path):
+           return FileResponse(file_path)
+       
+       # Otherwise serve index.html for SPA routing
+       return FileResponse(os.path.join(static_dir, "index.html"))
+   ```
+
+This architecture ensures:
+- Fast static asset delivery
+- Proper SPA routing support  
+- Clean separation between API and frontend routes
+- No conflicts between Vue Router and FastAPI routing
+
 ## 3. Technologies Used
 
 * **Backend:** Python 3.10+, FastAPI, SQLModel (for ORM), Passlib (for password hashing), Python-JOSE (for JWT).
@@ -137,9 +183,23 @@ docker compose ps
 
 You should see the `app` service running and healthy.
 
+**Note:** The main portal service is named `app` in Docker Compose (not `portal-backend`). This service handles both the FastAPI backend and serves the Vue.js frontend static files through a unified static file serving system.
+
 ### Initial Admin User Creation
 
-After the Docker Compose stack is up, you need to create an initial administrator user. This is done via the backend's API documentation (Swagger UI).
+After the Docker Compose stack is up, you have two options for creating initial users:
+
+**Option 1: Use the Sample Data Script (Recommended for Testing)**
+```bash
+docker compose exec app python /app/add_sample_webapps.py
+```
+This creates sample users, roles, and web applications for immediate testing. The admin user will be:
+- Username: `admin`
+- Password: `admin123`
+- Roles: admin, user, project_manager, special_access, public
+
+**Option 2: Manual Admin Creation via Swagger UI**
+If you prefer to create your own admin user manually:
 
 1. **Open Swagger UI:** Go to http://localhost:8000/docs
 
@@ -173,12 +233,42 @@ After the Docker Compose stack is up, you need to create an initial administrato
 
 ### Adding Sample Web Applications
 
-Using your authorized admin session in Swagger UI (http://localhost:8000/docs), add the sample web applications. These will appear in the portal based on user roles.
+The portal includes a convenient script to populate the database with sample data, including users, roles, and web applications.
 
-1. **Add "Simple User App":**
+**Automated Sample Data Setup:**
+
+```bash
+# Run the sample data script inside the app container
+docker compose exec app python /app/add_sample_webapps.py
+```
+
+This script will create:
+- **Default Roles:** admin, user, project_manager, special_access, public
+- **Sample Users:**
+  - `admin` (password: `admin123`) - All roles including admin
+  - `testuser` (password: `testpass`) - user, public roles
+  - `manager` (password: `managerpass`) - user, project_manager, public roles
+  - `specialuser` (password: `specialpass`) - user, special_access, public roles
+- **Sample Web Applications:**
+  - User Management Portal (admin only)
+  - Simple User Dashboard (user, admin, public)
+  - Admin Dashboard (admin only)
+  - Project Management Tool (project_manager, admin, public)
+  - Special Access Portal (special_access, admin)
+  - Public Information Hub (public, user, admin)
+
+**Manual Addition via Swagger UI:**
+
+You can also add applications manually using the Swagger UI at http://localhost:8000/docs:
+
+1. **Get Admin Access Token:**
+   * Expand the `POST /token` endpoint under "Login".
+   * Enter admin credentials and get the access token.
+   * Click "Authorize" and enter `Bearer YOUR_TOKEN_HERE`.
+
+2. **Add Web Application:**
    * Expand `POST /apps/` under "Webapp".
-   * Click "Try it out".
-   * Request body:
+   * Example request body:
 
 ```json
 {
@@ -186,45 +276,6 @@ Using your authorized admin session in Swagger UI (http://localhost:8000/docs), 
   "url": "http://localhost:5001",
   "required_roles": ["user"],
   "description": "A basic application accessible to all standard users."
-}
-```
-
-   * Click "Execute". (201 Created response expected).
-
-2. **Add "Admin Dashboard":**
-   * Repeat the process for a second app.
-   * Request body:
-
-```json
-{
-  "name": "Admin Dashboard",
-  "url": "http://localhost:5002",
-  "required_roles": ["admin"],
-  "description": "The administrative control panel, for administrators only."
-}
-```
-
-   * Click "Execute". (201 Created response expected).
-
-3. **(Optional) Add More Apps:** You can add additional apps like "Project Tracker" and "Sensitive Tool":
-
-**Project Tracker:**
-```json
-{
-  "name": "Project Tracker",
-  "url": "http://localhost:8082",
-  "required_roles": ["user", "project_manager"],
-  "description": "Project management and tracking tools."
-}
-```
-
-**Sensitive Tool:**
-```json
-{
-  "name": "Sensitive Tool",
-  "url": "http://localhost:8083",
-  "required_roles": ["admin", "special_access"],
-  "description": "High-security administrative tools."
 }
 ```
 
@@ -244,6 +295,23 @@ Using your authorized admin session in Swagger UI (http://localhost:8000/docs), 
 
 ## 6. Basic Management
 
+### Quick Start Testing
+
+After running the sample data script, you can immediately test the portal:
+
+1. **Access the Portal:** http://localhost:8000
+2. **Login with Admin Account:**
+   - Username: `admin`
+   - Password: `admin123`
+3. **Test Admin Features:**
+   - Click "Admin Dashboard" to access management views
+   - Navigate to "User Management" to see all users
+   - Navigate to "Role Management" to manage roles
+   - Navigate to "WebApp Management" to see configured applications
+4. **Test Regular User Access:**
+   - Logout and login as `testuser` (password: `testpass`)
+   - Should see only applications available to "user" role
+
 ### Accessing the Portal
 
 Once all services are up, open your web browser and navigate to:
@@ -251,6 +319,11 @@ Once all services are up, open your web browser and navigate to:
 **http://localhost:8000**
 
 This will load the Vue.js frontend login page.
+
+**Technical Note:** The FastAPI backend (`main.py`) serves the Vue.js frontend using a sophisticated static file serving setup:
+- Static assets (CSS, JS, favicon) are served directly from the `dist/` directory
+- All non-API routes are served the Vue.js SPA `index.html` for client-side routing
+- API routes (prefixed with `/users`, `/apps`, `/token`, `/docs`) are handled by FastAPI endpoints
 
 ### Login & Authentication
 
@@ -265,6 +338,19 @@ The "Admin Dashboard" link will only appear in the navigation bar if you are log
 * Clicking this link takes you to `http://localhost:8000/admin`.
 * From here, you can navigate to "Manage Users" or "Manage WebApps".
 * **Security:** Frontend route guards prevent non-admin users from accessing `/admin` paths directly, redirecting them to `/apps` and showing an access denied message.
+
+**Admin UI Access Requirements:**
+1. User must have `admin` role assigned
+2. User must be successfully logged in with valid JWT token
+3. Backend `/users/me` endpoint must return user data with admin role
+4. Frontend Vuex store must receive and recognize admin role
+
+**Troubleshooting Admin Access:**
+- If admin dashboard link doesn't appear after login with admin user:
+  1. Check browser console for errors
+  2. Verify `/users/me` API call returns correct user data with admin role
+  3. Check Vuex store state in Vue dev tools
+  4. Ensure frontend was rebuilt after any backend changes: `npm run build`
 
 ### User Management
 
@@ -520,6 +606,92 @@ docker compose up --build -d
 
 ### Common Issues
 
+## 9. Troubleshooting
+
+### Common Issues
+
+#### Frontend/Static Asset Issues
+
+**"Unexpected token '<'" JavaScript Error (RESOLVED)**
+This typically indicates the frontend is receiving HTML instead of JavaScript files.
+
+*Symptoms:*
+- Browser console shows syntax errors in JS files
+- Vue.js application doesn't load properly
+- Admin dashboard/management views not accessible
+
+*Root Cause:* FastAPI static file serving configuration conflicts between `app.mount()` calls and catch-all routes.
+
+*Solution (IMPLEMENTED):*
+The current `main.py` uses a robust static file serving approach:
+
+1. **Root Route:** Serves `index.html` for the main page (`/`)
+2. **Catch-All Route:** Handles all other routes with this logic:
+   ```python
+   @app.get("/{full_path:path}")
+   async def catch_all(full_path: str):
+       # Skip API routes
+       if full_path.startswith(("users", "apps", "token", "docs", "redoc")):
+           raise HTTPException(status_code=404)
+       
+       # Serve static files if they exist
+       file_path = os.path.join(static_dir, full_path)
+       if os.path.isfile(file_path):
+           return FileResponse(file_path)
+       
+       # Otherwise serve index.html for Vue Router
+       return FileResponse(os.path.join(static_dir, "index.html"))
+   ```
+
+3. **No `app.mount()` Usage:** Removed problematic mount points that caused conflicts:
+   ```python
+   # These lines were REMOVED to fix the issue:
+   # app.mount("/js", StaticFiles(directory=js_dir), name="js")
+   # app.mount("/css", StaticFiles(directory=css_dir), name="css")
+   # app.mount("/static", StaticFiles(directory=static_dir), name="static")
+   ```
+
+*If you still see this issue:*
+1. Rebuild frontend: `cd portal-frontend-vue && npm run build && cd ..`
+2. Rebuild containers: `docker compose up --build -d`
+3. Check file serving in browser dev tools Network tab
+
+**White Page After Login (RESOLVED)**
+*Symptoms:*
+- Login successful but application shows blank white page
+- No Vue.js content loads
+
+*Root Cause:* Same as above - incorrect static file serving preventing Vue.js bundle from loading.
+
+*Solution:* Fixed by the static file serving improvements described above.
+
+**Admin Dashboard Not Visible After Login**
+*Symptoms:*
+- User logs in successfully but admin dashboard link doesn't appear
+- Redirected to `/apps` page but admin features missing
+
+*Root Cause:* Usually related to:
+- Frontend not receiving correct user role information
+- Backend `/users/me` endpoint not working properly
+- Vuex state not updating with admin role
+
+*Solution:*
+1. Verify `/users/me` endpoint works:
+   ```bash
+   # Get token first, then test (replace TOKEN with actual token)
+   curl -H "Authorization: Bearer TOKEN" http://localhost:8000/users/me
+   ```
+
+2. Check user has admin role in database:
+   - Use Swagger UI at http://localhost:8000/docs
+   - Use `GET /users/` endpoint with admin token
+   - Confirm user has "admin" in roles array
+
+3. Test frontend role detection:
+   - Login and check browser dev tools Console for any JavaScript errors
+   - Check Network tab for `/users/me` response
+   - Should return user object with roles array containing "admin"
+
 #### Docker Issues
 
 **"Docker daemon is not running"**
@@ -536,6 +708,18 @@ netstat -an | findstr :8000  # Windows
 # Stop conflicting services or change ports in docker-compose.yml
 ```
 
+**Service fails to start with dependency errors**
+```bash
+# Check specific service logs
+docker compose logs app
+
+# Common Python dependency errors:
+# - NameError: name 'get_current_active_admin_user' is not defined
+#   Solution: Check main.py uses correct function name 'get_current_admin_user'
+# - Import errors: Rebuild container with --build flag
+docker compose up --build -d
+```
+
 #### Frontend Build Issues
 
 **"npm install fails"**
@@ -549,7 +733,12 @@ Remove-Item -Recurse -Force node_modules, package-lock.json  # PowerShell
 
 npm install
 ```
-  
+
+**"npm run build fails"**
+- Ensure Node.js version compatibility (14+ recommended)
+- Check for syntax errors in Vue.js components
+- Clear npm cache and retry
+
 #### Service Health Issues
 
 **Check service status:**
@@ -557,6 +746,18 @@ npm install
 docker compose ps
 docker compose logs app
 ```
+
+**App service shows "unhealthy" status:**
+1. Check logs for startup errors:
+```bash
+docker compose logs app
+```
+
+2. Common issues:
+   - Port binding conflicts
+   - Missing environment variables
+   - Database connection issues
+   - Python dependency errors
 
 **Restart services:**
 ```bash
@@ -569,22 +770,153 @@ docker compose down
 docker compose up --build -d
 ```
 
-#### Database Issues
+#### Database/SQLModel Issues
 
-**Database corruption:**
-1. Stop services: `docker compose stop app`
-2. Restore from backup using restore scripts
-3. Start services: `docker compose start app`
+**"ValueError: <class 'list'> has no matching SQLAlchemy type" Error**
+*Symptoms:*
+- Backend fails to start with SQLModel errors
+- Database table creation fails
+- Sample data script (`add_sample_webapps.py`) crashes
 
-**Missing database file:**
-- The database will be created automatically on first run
-- Create initial admin user via Swagger UI at http://localhost:8000/docs
+*Root Cause:* SQLModel relationship definitions using `Field(default_factory=list)` instead of proper `Relationship()` configuration.
+
+*Solution:*
+This error is typically caused by incorrect relationship definitions in SQLModel. The models in `main.py` use proper `Relationship()` definitions:
+
+```python
+# Correct (in main.py):
+class Role(SQLModel, table=True):
+    users: List["User"] = Relationship(back_populates="roles", link_model=UserRoleLink)
+    web_apps: List["WebApp"] = Relationship(back_populates="required_by_roles", link_model=WebAppRoleLink)
+
+# Incorrect (causes the error):
+class Role(SQLModel, table=True):
+    users: List["User"] = Field(default_factory=list)  # Wrong!
+    web_apps: List["WebApp"] = Field(default_factory=list)  # Wrong!
+```
+
+If you see this error:
+1. Rebuild the container: `docker compose up --build -d`
+2. The latest version of `add_sample_webapps.py` handles relationships correctly using manual link table management
+
+**Database Seeding Script Errors**
+
+*"sqlite3.OperationalError: no such table: role"*
+- The script now includes automatic table creation
+- If you see this error, ensure the container is rebuilt: `docker compose up --build -d`
+
+*"AttributeError: 'NoneType' object has no attribute '_sa_instance_state'"*
+- Fixed in latest version by removing unnecessary `session.refresh()` calls
+- Update script and rebuild: `docker compose up --build -d`
+
+**Sample Data Script Usage**
+```bash
+# Clean database and re-seed (removes all existing data)
+docker compose down -v  # -v removes database volume
+docker compose up --build -d
+docker compose exec app python /app/add_sample_webapps.py
+
+# Add sample data to existing database (updates existing users/apps)
+docker compose exec app python /app/add_sample_webapps.py
+```
+
+#### API/Backend Issues
+
+**"404 Not Found" for API endpoints**
+- Verify backend service is running: `docker compose ps`
+- Check API documentation at http://localhost:8000/docs
+- Ensure endpoints are correctly defined in `main.py`
+
+**JWT Token Issues**
+*Symptoms:*
+- "Could not validate credentials" errors
+- Automatic logout after login
+- API calls returning 401 Unauthorized
+
+*Solution:*
+1. Clear browser local storage and cookies
+2. Re-login to get fresh token
+3. Check token expiration settings in backend
+
+**CORS Issues**
+*Symptoms:*
+- Browser console shows CORS policy errors
+- Frontend can't communicate with backend
+
+*Solution:*
+- Verify CORS middleware is properly configured in `main.py`
+- Check allowed origins include frontend URL
+
+### Debugging Steps
+
+#### 1. Frontend Issues
+```bash
+# Check Vue.js build output
+ls -la portal-frontend-vue/dist/
+
+# Rebuild frontend
+cd portal-frontend-vue
+npm run build
+cd ..
+
+# Check browser console for errors
+# Open browser dev tools (F12) and check Console tab
+```
+
+#### 2. Backend Issues
+```bash
+# Check backend logs
+docker compose logs app
+
+# Access backend container for debugging
+docker compose exec app bash
+
+# Test API directly
+curl http://localhost:8000/docs
+```
+
+#### 3. Docker Network Issues
+```bash
+# Check Docker network
+docker network ls
+docker network inspect local_portal_portal_network
+
+# Verify all services are on same network
+docker compose ps
+```
+
+#### 4. Database Issues
+```bash
+# Check database file exists
+ls -la data/
+
+# Backup current database
+docker compose run --rm backup-db
+
+# Access database directly (SQLite)
+docker compose exec app python -c "
+from database import engine
+from sqlmodel import SQLModel, Session, select
+from models import User
+with Session(engine) as session:
+    users = session.exec(select(User)).all()
+    for user in users:
+        print(f'User: {user.username}, Roles: {user.roles}')
+"
+```
 
 ### Log Files
 
 - **Application logs:** `docker compose logs app`
-- **Backup logs (Linux):** `./backup_log.txt`
 - **Individual service logs:** `docker compose logs [service_name]`
+- **Backup logs (Linux):** `./backup_log.txt`
+- **Real-time logs:** `docker compose logs -f app`
+
+**Important Service Names:**
+- Main portal (FastAPI + Vue.js): `app`
+- Simple User App: `simple-user-app`  
+- Admin Dashboard App: `admin-dashboard-app`
+- Database backup service: `backup-db`
 
 ### Performance Issues
 
@@ -655,6 +987,12 @@ docker compose ps
 
 # View logs
 docker compose logs app
+
+# Add sample web applications
+docker compose exec app python add_sample_webapps.py
+
+# Rebuild frontend and restart (after Vue.js changes)
+cd portal-frontend-vue && npm run build && cd .. && docker compose up --build -d
 
 # Create backup (Windows)
 .\scripts\windows\quick-backup.ps1

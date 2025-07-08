@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY main.py .
 COPY init_users.py .
+COPY add_sample_webapps.py .
 COPY static/ ./static/
 
 # Copy the Vue.js frontend build (dist directory)
