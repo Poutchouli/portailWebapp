@@ -4,7 +4,7 @@
 
     <div class="webapp-list-section">
       <h4>All Web Applications</h4>
-      <button @click="showAddWebAppForm = true" class="add-btn">Add New WebApp</button>
+      <button @click="enterAddMode" class="add-btn">Add New WebApp</button>
 
       <p v-if="loading" class="loading-message">Loading web applications...</p>
       <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -78,6 +78,12 @@ export default {
     this.fetchWebApps();
   },
   methods: {
+    enterAddMode() {
+      this.selectedWebApp = { name: '', url: '', required_roles: [], description: '' }; // Initialize with an empty object
+      this.showAddWebAppForm = true;
+      this.showEditWebAppForm = false; // Ensure edit form is not shown
+      this.formMessage = ''; // Clear any previous messages
+    },
     async fetchWebApps() {
       this.loading = true;
       this.errorMessage = '';

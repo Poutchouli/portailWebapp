@@ -4,7 +4,7 @@
 
     <div class="user-list-section">
       <h4>All Users</h4>
-      <button @click="showAddUserForm = true" class="add-btn">Add New User</button>
+      <button @click="enterAddMode" class="add-btn">Add New User</button>
 
       <p v-if="loading" class="loading-message">Loading users...</p>
       <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -74,6 +74,12 @@ export default {
     this.fetchUsers();
   },
   methods: {
+    enterAddMode() {
+      this.selectedUser = { username: '', password: '', roles: [] }; // Initialize with an empty object
+      this.showAddUserForm = true;
+      this.showEditUserForm = false; // Ensure edit form is not shown
+      this.formMessage = ''; // Clear any previous messages
+    },
     async fetchUsers() {
       this.loading = true;
       this.errorMessage = '';

@@ -656,14 +656,46 @@ The current `main.py` uses a robust static file serving approach:
 2. Rebuild containers: `docker compose up --build -d`
 3. Check file serving in browser dev tools Network tab
 
-**White Page After Login (RESOLVED)**
+**"TypeError: Cannot read properties of null" in Add Forms (RESOLVED)**
 *Symptoms:*
-- Login successful but application shows blank white page
-- No Vue.js content loads
+- Clicking "Add New User" or "Add New WebApp" buttons causes JavaScript errors
+- Browser console shows `TypeError: Cannot read properties of null (reading 'required_roles')` or similar
+- Add forms don't appear or crash immediately
 
-*Root Cause:* Same as above - incorrect static file serving preventing Vue.js bundle from loading.
+*Root Cause:* The add buttons were directly setting `showAddUserForm = true` or `showAddWebAppForm = true` without initializing the `selectedUser` or `selectedWebApp` objects. Since these start as `null`, the form components tried to access `null.required_roles` or `null.roles`.
 
-*Solution:* Fixed by the static file serving improvements described above.
+*Solution (IMPLEMENTED):* 
+1. **Changed button handlers** from direct assignment to method calls:
+   ```vue
+   <!-- Old (caused error): -->
+   <button @click="showAddUserForm = true">Add New User</button>
+   <button @click="showAddWebAppForm = true">Add New WebApp</button>
+   
+   <!-- New (fixed): -->
+   <button @click="enterAddMode">Add New User</button>
+   <button @click="enterAddMode">Add New WebApp</button>
+   ```
+
+2. **Added `enterAddMode` methods** to properly initialize objects:
+   ```javascript
+   // In UserManagementView.vue:
+   enterAddMode() {
+     this.selectedUser = { username: '', password: '', roles: [] };
+     this.showAddUserForm = true;
+     this.showEditUserForm = false;
+     this.formMessage = '';
+   }
+   
+   // In WebAppManagementView.vue:
+   enterAddMode() {
+     this.selectedWebApp = { name: '', url: '', required_roles: [], description: '' };
+     this.showAddWebAppForm = true;
+     this.showEditWebAppForm = false;
+     this.formMessage = '';
+   }
+   ```
+
+This ensures the form components always receive valid objects instead of `null` values.
 
 **Admin Dashboard Not Visible After Login**
 *Symptoms:*
